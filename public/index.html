@@ -160,7 +160,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
     <label for="aOwner">Currently with</label><select id="aOwner" onchange="loadLeads()"><option value="">All</option></select>
     <label for="target">Intended owner</label><select id="target"></select>
     <label for="aState">Owner state</label>
-    <select id="aState" onchange="loadLeads()"><option value="">All</option><option value="unowned">Unowned</option><option value="archived">Archived</option><option value="active">Active, off roster</option></select>
+    <select id="aState" onchange="loadLeads()"><option value="assignable">All that need an owner</option><option value="unowned">Unowned</option><option value="archived">With a deactivated agent</option></select>
     <button class="btn" onclick="selAll(true)">Select all shown</button>
     <button class="btn" onclick="selAll(false)">Clear</button>
     <span class="sum" id="aSum"></span>
@@ -214,7 +214,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
 </div>
 
 <script>
-let META = {}, AGENTS = [], ROSTER = new Set(), ROWS = [], sel = new Set(), done = new Set(), curOwner = null, tab = 'q';
+let META = {}, AGENTS = [], ROSTER = new Set(), ROWS = [], LAST = {}, sel = new Set(), done = new Set(), curOwner = null, tab = 'q';
 const $ = id => document.getElementById(id);
 const fmt = n => (n ?? 0).toLocaleString('en-IN');
 const lakh = n => '₹' + (n / 1e5).toFixed(2) + 'L';
@@ -263,8 +263,10 @@ async function loadAgents(){
 }
 function pick(o){ curOwner = curOwner === o ? null : o; loadLeads(); }
 
-// One fetch drives both the chips and the table, so the chip counts always reflect
-// whatever creator, tier and stage are set above them.
+// One fetch drives the chips, the stage list and the table, so everything on screen
+// reflects the same creator, tier and stage. The chips and the stage counts come from
+// the aggregates, which the server computes over the whole filtered set, not from the
+// rows, which are capped.
 async function loadLeads(){
   const q = new URLSearchParams();
   const c = creator(); if (c) q.set('creator', c);
@@ -273,67 +275,60 @@ async function loadLeads(){
   const stage = tab === 'q' ? $('qStage').value : $('aStage').value;
   if (tier) q.set('tier', tier);
   if (stage) q.set('stage', stage);
-  const r = await (await fetch('/api/leads?' + q)).json();
-  fillStages(r.rows);
-
-  const mine = r.rows.filter(l => ROSTER.has(l.ownerId));
-  const theirs = r.rows.filter(l => !ROSTER.has(l.ownerId));
-  drawChips(mine);
-
-  let rows;
   if (tab === 'q'){
-    rows = curOwner ? mine.filter(l => l.ownerId === curOwner) : mine;
-    if ($('qHide').checked) rows = rows.filter(l => !done.has(l.id));
+    q.set('ownerState', 'active');                 // the queues are what the roster holds
+    if (curOwner) q.set('owner', curOwner);
   } else {
-    rows = theirs;
-    const o = $('aOwner').value;
-    if (o) rows = rows.filter(l => (l.ownerId || 'unowned') === o);
-    const st = $('aState').value;
-    if (st === 'unowned') rows = rows.filter(l => l.ownerActive === 'unowned');
-    else if (st === 'archived') rows = rows.filter(l => l.ownerActive === false);
-    else if (st === 'active') rows = rows.filter(l => l.ownerActive === true);
+    q.set('ownerState', $('aState').value || 'assignable');
+    const o = $('aOwner').value; if (o) q.set('owner', o);
   }
+  q.set('limit', '5000');
+  const r = await (await fetch('/api/leads?' + q)).json();
+  LAST = r;
+  fillStages(r.stages);
+  drawChips(r.agents.filter(a => a.active === true));
+
+  let rows = r.rows;
+  if (tab === 'q' && $('qHide').checked) rows = rows.filter(l => !done.has(l.id));
   ROWS = rows;
-  const label = `${fmt(rows.length)} leads · ${lakh(rows.reduce((a, x) => a + x.value, 0))}`;
-  if (tab === 'q') $('qSum').textContent = label + (curOwner ? '' : ` · ${ROSTER.size} agents`);
-  else $('aSum').textContent = label + ` · ${fmt(theirs.length)} need an owner`;
+
+  // The totals describe the full set; the table shows the top slice of it by value.
+  const shown = rows.length < r.total ? ` · showing the top ${fmt(rows.length)}` : '';
+  const label = `${fmt(r.total)} leads · ${lakh(r.value)}${shown}`;
+  if (tab === 'q') $('qSum').textContent = label + (curOwner ? '' : ` · across ${fmt(ROSTER.size)} agents`);
+  else $('aSum').textContent = label + ' · waiting on an owner';
   render();
 }
-// The stage dropdowns are built from the data that came back. When a stage is already
-// selected the response only holds that stage, so the list is left alone rather than
-// collapsing to one option and trapping the filter.
+// The stage dropdowns are built from the server's stage counts, which are taken before
+// the stage filter is applied, so selecting a stage cannot collapse the list to one option.
 const STAGE_ORDER = ['payment_prospect', 'counselled', 'pricing_pitched', 'program_pitched',
   'discovery', 'Follow up', 'FU_RCB', 'FU_DNP', 'rcb_requested_callback', 'dnp_did_not_pick'];
-function fillStages(rows){
-  const n = new Map();
-  for (const l of rows) n.set(l.stage, (n.get(l.stage) || 0) + 1);
+function fillStages(counts){
+  const n = counts || {};
+  const seen = STAGE_ORDER.filter(s => n[s])
+    .concat(Object.keys(n).filter(s => s && !STAGE_ORDER.includes(s)));
+  const html = '<option value="">All stages</option>' + seen.map(s =>
+    `<option value="${s}">${stageName(s)} (${fmt(n[s])})</option>`).join('');
   for (const id of ['qStage', 'aStage']){
     const el = $(id);
     if (!el) continue;
-    if (el.value) continue;                        // a filter is on, the list stays as it is
-    const seen = STAGE_ORDER.filter(s => n.has(s))
-      .concat([...n.keys()].filter(s => s && !STAGE_ORDER.includes(s)));
-    el.innerHTML = '<option value="">All stages</option>' + seen.map(s =>
-      `<option value="${s}">${stageName(s)} (${fmt(n.get(s))})</option>`).join('');
+    const keep = el.value;
+    el.innerHTML = html;
+    el.value = keep;                               // rebuilding must not drop the filter
   }
 }
 
-function drawChips(mine){
-  const by = new Map();
-  for (const l of mine){
-    if (!by.has(l.ownerId)) by.set(l.ownerId, { name: l.ownerName, n: 0, p1: 0, v: 0 });
-    const a = by.get(l.ownerId);
-    a.n++; a.v += l.value; if (l.tier === 'P1') a.p1++;
-  }
+function drawChips(list){
+  const by = new Map(list.map(a => [a.ownerId, { name: a.name, n: a.n, p1: a.p1, v: a.value }]));
   // agents on the roster with nothing matching the filters still show, greyed, so a zero is visible
   for (const id of ROSTER) if (!by.has(id)){
     const a = AGENTS.find(x => x.ownerId === id);
     if (a) by.set(id, { name: a.name, n: 0, p1: 0, v: 0 });
   }
-  const list = [...by.entries()].sort((a, b) => b[1].v - a[1].v);
-  $('chips').innerHTML = list.length ? list.map(([id, a]) =>
+  const out = [...by.entries()].sort((a, b) => b[1].v - a[1].v);
+  $('chips').innerHTML = out.length ? out.map(([id, a]) =>
     `<button class="chip" aria-pressed="${curOwner === id}" onclick="pick('${id}')" ${a.n ? '' : 'style="opacity:.45"'}>
-      <b>${a.name}</b>${fmt(a.n)} leads · ${a.p1} P1 · ${lakh(a.v)}</button>`).join('')
+      <b>${a.name}</b>${fmt(a.n)} leads · ${fmt(a.p1)} P1 · ${lakh(a.v)}</button>`).join('')
     : '<span class="sum">no agents hold leads matching these filters</span>';
 }
 

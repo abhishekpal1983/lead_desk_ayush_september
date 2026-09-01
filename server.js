@@ -400,22 +400,64 @@ app.get('/api/agents', (req, res) => {
   res.json([...by.values()].sort((x, y) => y.value - x.value));
 });
 
+// The rows are capped so the payload stays sane, but the agent chips, the stage
+// dropdown and the summary must describe the WHOLE filtered set, not the first page
+// of it. So the aggregates are computed before the slice and returned alongside.
 app.get('/api/leads', (req, res) => {
-  const { creator, owner, stage, tier, scope, group, minValue } = req.query;
+  const { creator, owner, stage, tier, scope, group, minValue, ownerState } = req.query;
   let out = [...S.leads.values()];
   if (scope !== 'all') out = out.filter(l => l.inScope);
   if (creator) out = out.filter(l => l.creator === creator);
-  if (owner) out = out.filter(l => (l.ownerId || 'unowned') === owner);
-  if (stage) out = out.filter(l => l.stage === stage);
-  if (tier) out = out.filter(l => l.tier === tier);
   if (group === 'workable') out = out.filter(l => WORKABLE.includes(l.stage));
   if (group === 'late') out = out.filter(l => LATE.includes(l.stage));
   if (group === 'fresh') out = out.filter(l => !l.stage);
+  if (tier) out = out.filter(l => l.tier === tier);
   if (minValue) out = out.filter(l => l.value >= Number(minValue));
+
+  // Stage counts are taken before the stage filter, otherwise the dropdown can only
+  // ever offer the stage that is already selected.
+  const stages = {};
+  for (const l of out) stages[l.stage] = (stages[l.stage] || 0) + 1;
+  if (stage) out = out.filter(l => l.stage === stage);
+
+  // Same for the agent aggregates: they are taken before the owner filter so that
+  // clicking one chip does not wipe out all the others.
+  const agents = new Map();
+  for (const l of out) {
+    const id = l.ownerId || 'unowned';
+    if (!agents.has(id)) {
+      const o = l.ownerId ? S.owners.get(l.ownerId) : null;
+      agents.set(id, {
+        ownerId: l.ownerId || '', name: o ? o.name : (l.ownerId ? 'unresolved' : 'Unowned'),
+        active: l.ownerId ? (o ? o.active : null) : 'unowned', n: 0, p1: 0, value: 0
+      });
+    }
+    const a = agents.get(id);
+    a.n++; a.value += l.value; if (l.tier === 'P1') a.p1++;
+  }
+  const agentList = [...agents.values()].sort((a, b) => b.value - a.value);
+
+  // ownerState narrows to who holds the lead. "assignable" is everything an active
+  // agent is not already holding, which is exactly what the assign tab lists.
+  if (ownerState === 'assignable') out = out.filter(l => shapeActive(l) !== true);
+  else if (ownerState === 'active') out = out.filter(l => shapeActive(l) === true);
+  else if (ownerState === 'archived') out = out.filter(l => shapeActive(l) === false);
+  else if (ownerState === 'unowned') out = out.filter(l => !l.ownerId);
+  if (owner) out = out.filter(l => (l.ownerId || 'unowned') === owner);
+
   out.sort((a, b) => b.value - a.value);
   const limit = Math.min(Number(req.query.limit) || 3000, 10000);
-  res.json({ total: out.length, rows: out.slice(0, limit).map(shape) });
+  const value = out.reduce((s, l) => s + (l.value || 0), 0);
+  res.json({
+    total: out.length, value, truncated: out.length > limit,
+    agents: agentList, stages, rows: out.slice(0, limit).map(shape)
+  });
 });
+function shapeActive(l) {
+  if (!l.ownerId) return 'unowned';
+  const o = S.owners.get(l.ownerId);
+  return o ? o.active : null;
+}
 
 // One lead, in full. The transcript is fetched here and only here.
 app.get('/api/lead/:id', async (req, res) => {
