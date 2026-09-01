@@ -1,0 +1,9 @@
+{
+  "name": "lead-desk",
+  "version": "1.0.0",
+  "description": "Per agent calling queues, lead progress history and bulk reassignment for Topmate sales ops. Standalone service, separate from agent_lead_bucket.",
+  "main": "server.js",
+  "engines": { "node": ">=18" },
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "express": "^4.19.2" }
+}

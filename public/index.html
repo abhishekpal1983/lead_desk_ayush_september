@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lead Desk</title>
+<style>
+:root{color-scheme:light;--bg:#FAF8F4;--surface:#fff;--surface2:#F3EFE8;--ink:#171A1F;--ink2:#565C66;
+ --muted:#8A9099;--line:#E4DFD6;--line2:#D3CCBF;--accent:#9A5B1F;--accent-soft:#F0E3D3;
+ --pos:#2F6B4F;--neg:#A6382A;--warn:#8A6A18}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#131519;--surface:#1A1D22;--surface2:#22262D;
+ --ink:#EDEAE4;--ink2:#A0A6B0;--muted:#7B828C;--line:#292D34;--line2:#3A404A;--accent:#DA9A55;
+ --accent-soft:#2E2519;--pos:#6FB894;--neg:#E28270;--warn:#D2AC55}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums}
+header{padding:18px 24px;border-bottom:2px solid var(--ink);display:flex;flex-wrap:wrap;gap:18px;align-items:baseline}
+h1{font-size:19px;margin:0;letter-spacing:-.01em}
+.sync{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);letter-spacing:.04em}
+.wrap{padding:20px 24px 80px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+select,button,input{font:inherit;font-size:12px;padding:7px 10px;border:1px solid var(--line2);
+ background:var(--surface);color:var(--ink);border-radius:3px}
+button{cursor:pointer}
+button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+button.danger{background:var(--neg);color:#fff;border-color:var(--neg)}
+button:disabled{opacity:.4;cursor:not-allowed}
+label{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-bottom:20px}
+.card{background:var(--surface);border:1px solid var(--line);padding:13px;cursor:pointer;border-radius:3px}
+.card:hover{border-color:var(--accent)}
+.card[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.card .nm{font-weight:600;font-size:14px;margin-bottom:2px}
+.card .st{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted)}
+.card .vv{font-family:ui-monospace,monospace;font-size:12px;color:var(--ink2);margin-top:6px}
+.badge{display:inline-block;font-family:ui-monospace,monospace;font-size:9.5px;font-weight:700;
+ padding:2px 5px;border-radius:3px;letter-spacing:.03em}
+.b-on{background:var(--pos);color:#fff}.b-off{background:var(--neg);color:#fff}.b-un{background:var(--muted);color:#fff}
+.tg{display:inline-block;font-family:ui-monospace,monospace;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px}
+.tg.P1{background:var(--accent);color:var(--bg)}.tg.P2{background:var(--accent-soft);color:var(--accent)}
+.tg.P3,.tg.P4{background:var(--surface2);color:var(--muted)}
+.tw{overflow-x:auto;border:1px solid var(--line);background:var(--surface);border-radius:3px}
+table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:tabular-nums;min-width:1080px}
+th{background:var(--surface2);text-align:right;padding:9px 10px;font-size:10px;letter-spacing:.07em;
+ text-transform:uppercase;color:var(--ink2);border-bottom:1px solid var(--line2);white-space:nowrap;font-weight:500}
+th:nth-child(-n+3),td:nth-child(-n+3){text-align:left}
+td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:hover td{background:var(--surface2)}
+td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line2)}
+td a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.neg{color:var(--neg)}.pos{color:var(--pos)}.dim{color:var(--muted)}
+.bar{position:sticky;bottom:0;background:var(--surface2);border-top:2px solid var(--ink);padding:12px 24px;
+ display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 -24px -80px;z-index:20}
+.bar .n{font-weight:700;font-size:16px}
+.drawer{position:fixed;top:0;right:0;width:min(560px,100%);height:100%;background:var(--surface);
+ border-left:2px solid var(--ink);overflow-y:auto;padding:22px;z-index:40;box-shadow:-14px 0 40px rgba(0,0,0,.14)}
+.drawer h2{font-size:17px;margin:0 0 4px}
+.drawer .sub{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);margin-bottom:16px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:12.5px;margin-bottom:18px}
+.kv dt{color:var(--muted);font-family:ui-monospace,monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em}
+.tl{border-left:2px solid var(--line2);padding-left:14px;margin:0 0 18px}
+.tl li{list-style:none;margin-bottom:9px;font-size:12.5px;position:relative}
+.tl li:before{content:"";position:absolute;left:-19px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+h3{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink2);
+ font-family:ui-monospace,monospace;margin:20px 0 8px}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--surface2);padding:13px;font-size:11.5px;
+ max-height:340px;overflow-y:auto;border-radius:3px;margin:0}
+.msg{font-size:12px}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Lead Desk</h1>
+  <span class="sync" id="sync">loading</span>
+  <span style="flex:1"></span>
+  <button onclick="refresh()">Force resync</button>
+</header>
+
+<div class="wrap">
+  <div class="row">
+    <label for="fCreator">Creator</label><select id="fCreator" onchange="loadAgents()"></select>
+    <label for="fGroup">Group</label>
+    <select id="fGroup" onchange="loadLeads()">
+      <option value="workable">Workable</option><option value="late">Late stage</option>
+      <option value="fresh">Fresh</option><option value="">Everything</option>
+    </select>
+    <label for="fTier">Tier</label>
+    <select id="fTier" onchange="loadLeads()"><option value="">All</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
+    <label for="fStage">Stage</label><select id="fStage" onchange="loadLeads()"><option value="">All</option></select>
+    <button onclick="clearOwner()">All agents</button>
+    <span class="sync" id="count"></span>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="tw"><table><thead><tr>
+    <th style="width:32px"><input type="checkbox" onclick="selAll(this.checked)"></th>
+    <th>Lead</th><th>Stage</th><th>Tier</th><th>Calls in stage</th><th>Calls total</th>
+    <th>Connected</th><th>Stage moves</th><th>Days in stage</th><th>Owner moves</th>
+    <th>With owner</th><th>Last call</th><th>Follow up</th><th>Owner</th><th>₹ value</th>
+  </tr></thead><tbody id="tb"></tbody></table></div>
+</div>
+
+<div class="bar">
+  <span class="n" id="selN">0 selected</span>
+  <label for="target">Assign to</label><select id="target"></select>
+  <button class="primary" id="assignBtn" onclick="assign(false)">Assign in HubSpot</button>
+  <button onclick="assign(true)">Dry run</button>
+  <span class="msg" id="msg"></span>
+</div>
+
+<div id="drawer"></div>
+
+<script>
+let META = {}, AGENTS = [], ROWS = [], sel = new Set(), curOwner = null;
+const $ = id => document.getElementById(id);
+const fmt = n => (n ?? 0).toLocaleString('en-IN');
+const today = new Date().toISOString().slice(0, 10);
+
+async function boot(){
+  META = await (await fetch('/api/meta')).json();
+  $('fCreator').innerHTML = '<option value="">All creators</option>' +
+    META.creators.map(c => `<option>${c}</option>`).join('');
+  const s = META.sync;
+  $('sync').textContent = `${fmt(META.leads)} leads · leads ${ago(s.leads.at)} · history ${ago(s.history.at)} · calls ${ago(s.calls.at)}`
+    + (META.writable ? ' · write enabled' : ' · READ ONLY');
+  $('assignBtn').disabled = !META.writable;
+  if (!META.writable) $('assignBtn').title = 'Set ALLOW_WRITE=1 and give the token crm.objects.contacts.write';
+  await loadAgents();
+}
+function ago(t){
+  if (!t) return 'never';
+  const m = Math.round((Date.now() - new Date(t)) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? m + 'm ago' : Math.round(m / 60) + 'h ago';
+}
+async function loadAgents(){
+  const c = $('fCreator').value;
+  AGENTS = await (await fetch('/api/agents' + (c ? '?creator=' + encodeURIComponent(c) : ''))).json();
+  $('target').innerHTML = AGENTS.filter(a => a.ownerId && a.active)
+    .map(a => `<option value="${a.ownerId}">${a.name}</option>`).join('');
+  $('cards').innerHTML = AGENTS.map(a => {
+    const badge = a.ownerId ? (a.active ? '<span class="badge b-on">active</span>' : '<span class="badge b-off">archived</span>')
+                            : '<span class="badge b-un">unowned</span>';
+    return `<div class="card" aria-pressed="${curOwner === (a.ownerId || 'unowned')}"
+      onclick="pickOwner('${a.ownerId || 'unowned'}')">
+      <div class="nm">${a.name}</div><div class="st">${badge} ${fmt(a.total)} leads</div>
+      <div class="vv">P1 ${a.p1} · late ${a.late} · overdue ${a.overdue} · uncalled ${a.uncalled}</div>
+      <div class="vv">₹${(a.value / 1e5).toFixed(2)}L</div></div>`;
+  }).join('');
+  await loadLeads();
+}
+function pickOwner(o){ curOwner = curOwner === o ? null : o; loadAgents(); }
+function clearOwner(){ curOwner = null; loadAgents(); }
+async function loadLeads(){
+  const q = new URLSearchParams();
+  if ($('fCreator').value) q.set('creator', $('fCreator').value);
+  if (curOwner) q.set('owner', curOwner);
+  if ($('fGroup').value) q.set('group', $('fGroup').value);
+  if ($('fTier').value) q.set('tier', $('fTier').value);
+  if ($('fStage').value) q.set('stage', $('fStage').value);
+  const r = await (await fetch('/api/leads?' + q)).json();
+  ROWS = r.rows;
+  const stages = [...new Set(ROWS.map(x => x.stage).filter(Boolean))].sort();
+  const cur = $('fStage').value;
+  $('fStage').innerHTML = '<option value="">All</option>' + stages.map(s => `<option ${s === cur ? 'selected' : ''}>${s}</option>`).join('');
+  $('count').textContent = `${fmt(r.total)} match, showing ${fmt(ROWS.length)}, worth ₹${(ROWS.reduce((a, x) => a + x.value, 0) / 1e5).toFixed(2)}L`;
+  render();
+}
+function render(){
+  $('tb').innerHTML = ROWS.length ? ROWS.map(l => {
+    const p = l.progress || {}, c = p.calls || {};
+    const od = l.followUpAt && l.followUpAt < today;
+    const ownBadge = l.ownerActive === true ? '' : l.ownerActive === 'unowned'
+      ? ' <span class="badge b-un">unowned</span>' : ' <span class="badge b-off">archived</span>';
+    return `<tr>
+      <td><input type="checkbox" ${sel.has(l.id) ? 'checked' : ''} onchange="mark('${l.id}',this.checked)"></td>
+      <td><a href="${l.url}" target="_blank" rel="noopener">${l.name}</a>
+          <a href="#" onclick="openLead('${l.id}');return false" style="margin-left:8px;color:var(--accent)">detail</a></td>
+      <td>${l.stage || 'fresh'}</td>
+      <td><span class="tg ${l.tier}">${l.tier}</span></td>
+      <td>${l.callsInStage}</td>
+      <td>${c.total ?? '<span class="dim">·</span>'}</td>
+      <td>${c.connected ?? '<span class="dim">·</span>'}</td>
+      <td>${p.stageChanges ?? '<span class="dim">·</span>'}</td>
+      <td>${l.daysInStage ?? ''}</td>
+      <td class="${p.ownerChanges > 1 ? 'warn' : ''}">${p.ownerChanges ?? '<span class="dim">·</span>'}</td>
+      <td>${p.daysWithCurrentOwner != null ? p.daysWithCurrentOwner + 'd' : '<span class="dim">·</span>'}</td>
+      <td class="dim">${l.lastCallAt || 'never'}</td>
+      <td class="${od ? 'neg' : 'dim'}">${l.followUpAt || 'none'}</td>
+      <td>${l.ownerName}${ownBadge}</td>
+      <td>${fmt(l.value)}</td></tr>`;
+  }).join('') : '<tr><td colspan="15" class="empty">Nothing matches these filters.</td></tr>';
+  updBar();
+}
+function mark(id, v){ v ? sel.add(id) : sel.delete(id); updBar(); }
+function selAll(v){ ROWS.forEach(l => v ? sel.add(l.id) : sel.delete(l.id)); render(); }
+function updBar(){
+  const rows = ROWS.filter(l => sel.has(l.id));
+  $('selN').textContent = `${fmt(sel.size)} selected` + (sel.size ? ` · ₹${(rows.reduce((a, x) => a + x.value, 0) / 1e5).toFixed(2)}L` : '');
+}
+async function assign(dry){
+  if (!sel.size) return say('Select some leads first', true);
+  const t = $('target');
+  const name = t.options[t.selectedIndex] ? t.options[t.selectedIndex].text : '';
+  if (!dry && !confirm(`Move ${sel.size} leads to ${name} in HubSpot? This changes the owner on every one of them.`)) return;
+  say('working');
+  const r = await (await fetch('/api/assign', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: [...sel], ownerId: t.value, dryRun: dry })
+  })).json();
+  if (r.error) return say(r.error, true);
+  if (!r.applied) return say(`Dry run: would move ${r.wouldUpdate} leads to ${r.ownerName}. ${r.reason}`, true);
+  say(`Moved ${r.updated} leads to ${r.ownerName}` + (r.failures && r.failures.length ? `, ${r.failures.length} batches failed` : ''));
+  sel.clear();
+  await loadAgents();
+}
+function say(t, bad){ const m = $('msg'); m.textContent = t; m.style.color = bad ? 'var(--neg)' : 'var(--pos)'; }
+async function openLead(id){
+  const d = $('drawer');
+  d.innerHTML = '<div class="drawer"><p class="dim">loading</p></div>';
+  const l = await (await fetch('/api/lead/' + id)).json();
+  const p = l.progress || {}, c = p.calls || {};
+  d.innerHTML = `<div class="drawer">
+    <button onclick="document.getElementById('drawer').innerHTML=''" style="float:right">close</button>
+    <h2>${l.name}</h2>
+    <p class="sub">${l.creator} · ${l.stage || 'fresh'} · <span class="tg ${l.tier}">${l.tier}</span> ·
+      <a href="${l.url}" target="_blank" rel="noopener">open in HubSpot</a></p>
+    <dl class="kv">
+      <dt>Owner</dt><dd>${l.ownerName}${l.ownerActive === false ? ' (archived)' : ''}</dd>
+      <dt>Assigned on</dt><dd>${p.assignedToCurrentOwnerAt || 'unknown'} ${p.daysWithCurrentOwner != null ? `(${p.daysWithCurrentOwner} days ago)` : ''}</dd>
+      <dt>Owner moves</dt><dd>${p.ownerChanges ?? 'unknown'}</dd>
+      <dt>Stage moves</dt><dd>${p.stageChanges ?? 'unknown'}, in this stage ${l.daysInStage ?? '?'} days</dd>
+      <dt>First counselled</dt><dd>${p.firstCounselledAt || 'never'}</dd>
+      <dt>Calls</dt><dd>${c.total ?? 0} total, ${c.connected ?? 0} connected, ${l.callsInStage} in this stage, ${l.callsByOwner} by the current owner</dd>
+      <dt>Last conversation</dt><dd>${c.lastAt || 'never'} ${c.lastDisposition ? '· ' + c.lastDisposition : ''}</dd>
+      <dt>Follow up</dt><dd class="${l.followUpAt && l.followUpAt < today ? 'neg' : ''}">${l.followUpAt || 'none set'}</dd>
+      <dt>Segment</dt><dd>${l.student}${l.intl ? ' · international' : ''}${l.score ? ' · score ' + l.score : ''} · ${l.source || 'no source'}</dd>
+    </dl>
+    ${p.inheritedUntouched ? '<p class="msg neg">Worked by a previous owner and never called by the current one.</p>' : ''}
+    <h3>Stage history</h3><ul class="tl">${(l.stagePath || []).map(s => `<li><b>${s.stage}</b> <span class="dim">${s.at}</span></li>`).join('') || '<li class="dim">no history recorded</li>'}</ul>
+    <h3>Owner history</h3><ul class="tl">${(l.ownerPath || []).map(o => `<li><b>${o.owner}</b>${o.active === false ? ' <span class="badge b-off">archived</span>' : ''} <span class="dim">${o.at}</span></li>`).join('') || '<li class="dim">never reassigned</li>'}</ul>
+    <h3>Recent calls</h3><ul class="tl">${(l.recentCalls || []).map(x => `<li>${x.at} · ${x.disposition || 'no disposition'} · ${x.seconds}s${x.by ? ' · ' + x.by : ''}</li>`).join('') || '<li class="dim">no call records in the last 120 days</li>'}</ul>
+    ${l.reason ? `<h3>Reason recorded</h3><pre>${esc(l.reason)}</pre>` : ''}
+    <h3>Call transcript</h3><pre>${l.transcript ? esc(l.transcript) : '<span class="dim">no sales call transcript on this lead</span>'}</pre>
+    ${l.aiTranscript ? `<h3>AI caller transcript</h3><pre>${esc(l.aiTranscript)}</pre>` : ''}
+  </div>`;
+}
+function esc(s){ return String(s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
+async function refresh(){ await fetch('/api/refresh', { method: 'POST' }); say('resync started, give it a few minutes'); }
+boot();
+</script>
+</body>
+</html>
