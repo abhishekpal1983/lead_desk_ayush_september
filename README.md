@@ -13,13 +13,12 @@ Per lead, not just per bucket:
 
 | Field | Where it comes from |
 |---|---|
-| Calls total and connected | CALL objects from the last 120 days, associated back to the contact. Not `call_attempts`, which is populated on about three leads in twenty five, and not `num_contacted_notes`, which counts emails and WhatsApp too |
 | Calls in current stage, and by the current owner | `callscurrent_stage` and `call_in_current_stage_by_current_owner`. The gap between them is inherited effort |
 | Stage moves, and the full stage path with dates | `propertiesWithHistory` on `contact_engagement_stage` |
 | First counselled | The first entry in that history into any counselling stage. This is the vetted definition, not the current stage |
 | Owner moves, and the full owner path | `propertiesWithHistory` on `hubspot_owner_id` |
 | Assigned to current owner on | The last entry in the owner history. Answers "how long has this person actually had it" |
-| Last conversation | Most recent call record, with its disposition and duration |
+| Last call | `last_call_date_and_time` on the contact |
 | Transcript | `call_engagement_transcript_real_one`, fetched one lead at a time in the detail drawer |
 
 The transcript is **never** in a bulk fetch. It is multi kilobyte per lead, no list view shows it,
@@ -58,7 +57,6 @@ npm start                 # http://localhost:3000
 |---|---|
 | `crm.objects.contacts.read` | leads, properties, and the property history that drives every progress field |
 | `crm.objects.owners.read` | agent names, including archived owners |
-| `crm.objects.calls.read` | the call records behind calls total, connected and last conversation |
 
 **This service is read only.** It has no write endpoint and needs no write scope, so the existing
 `agent_lead_bucket` service key works without modification. Reassignment happens in HubSpot: the
@@ -74,7 +72,6 @@ anyone with the URL.
 | Sync | Default | Cost |
 |---|---|---|
 | leads | every 10 min | one search per creator per stage group, split by create date whenever a partition exceeds 9,000 |
-| calls | every 60 min | calls from the last 120 days, walked a week at a time, plus one association batch per page |
 | history | every 60 min | `batch/read` at 50 ids per call, in scope workable and IFC leads only |
 | owners | every 6 h | two passes, active and archived |
 
@@ -119,6 +116,8 @@ recursively. The calls sync walks its 120 day window a week at a time for the sa
 - In memory only. A restart rebuilds from HubSpot, which takes a few minutes and costs nothing else.
 - `previous_engagement_stage` is not used anywhere here. It records `ghosted` for 479 of 499 ghosted
   leads, so it cannot say which stage a lead ghosted from. Stage history is the only honest source.
-- Call association is read from the last 120 days. A lead whose only calls are older will show zero
-  calls total while still showing a `callscurrent_stage` value from the contact property.
+- There is no call-object sync. Call counts come from `callscurrent_stage`, which resets when a lead
+  changes stage, so it means calls made since the lead reached its present stage, not calls ever made.
+  Walking the call objects meant paging roughly 25,000 records a week through a search API that caps
+  at 10,000, for three numbers already sitting on the contact.
 - The desk does not create tasks, log activity, or change any record. It reads and ranks, nothing else.

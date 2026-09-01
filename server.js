@@ -122,7 +122,6 @@ const S = {
   meta: {
     leads: { at: null, n: 0, err: null },
     history: { at: null, n: 0, err: null },
-    calls: { at: null, n: 0, err: null },
     owners: { at: null, n: 0, err: null }
   },
   readOnly: true
@@ -324,8 +323,7 @@ async function syncHistory() {
         assignedToCurrentOwnerAt: ownerPath.length ? ownerPath[ownerPath.length - 1].at : '',
         daysWithCurrentOwner: ownerPath.length ? daysSince(ownerPath[ownerPath.length - 1].at) : null,
         // a lead worked by someone else and never touched since it moved is the reassignment blind spot
-        inheritedUntouched: lead.callsInStage > 0 && lead.callsByOwner === 0,
-        calls: (lead.progress && lead.progress.calls) || null
+        inheritedUntouched: lead.callsInStage > 0 && lead.callsByOwner === 0
       };
       n++;
     }
@@ -335,108 +333,11 @@ async function syncHistory() {
   return n;
 }
 
-// ---------------------------------------------------------------- sync: calls
-// The contact properties that look like call counts are traps: call_attempts is populated on
-// about three leads in twenty five, and num_contacted_notes counts emails and WhatsApp too.
-// The only honest count is the call records themselves.
-async function syncCalls() {
-  const dispositions = new Map();
-  try {
-    const d = await hs('/crm/v3/properties/calls/hs_call_disposition');
-    for (const o of (d.options || [])) dispositions.set(o.value, o.label);
-  } catch (e) { /* labels are a nicety, carry on without them */ }
-
-  // The same 10,000 ceiling applies here, and this desk logs roughly 25,000 calls a week,
-  // so even a one week window overflows it. Windows are probed and halved until each fits.
-  const byContact = new Map();
-  let n = 0;
-  const DAY = 86400000;
-  const LOOKBACK = Number(process.env.CALL_LOOKBACK_DAYS) || 45;
-
-  async function window(fromMs, toMs, depth = 0) {
-    const from = new Date(fromMs).toISOString(), to = new Date(toMs).toISOString();
-    const base = [{ propertyName: 'hs_timestamp', operator: 'BETWEEN', value: from, highValue: to }];
-    const probe = await hs('/crm/v3/objects/calls/search', {
-      method: 'POST',
-      body: JSON.stringify({ filterGroups: [{ filters: base }], properties: ['hs_timestamp'], limit: 1 })
-    });
-    const total = probe.total || 0;
-    if (!total) return;
-    if (total > CAP && depth < 12 && toMs - fromMs > 3600000) {   // halve, down to an hour
-      const mid = Math.floor((fromMs + toMs) / 2);
-      await window(fromMs, mid, depth + 1);
-      await window(mid, toMs, depth + 1);
-      return;
-    }
-    let after, got = 0;
-    do {
-      const body = {
-        filterGroups: [{ filters: base }],
-        properties: ['hs_timestamp', 'hs_call_disposition', 'hs_call_duration', 'hubspot_owner_id'],
-        sorts: [{ propertyName: 'hs_timestamp', direction: 'ASCENDING' }],
-        limit: 100
-      };
-      if (after) body.after = after;
-      const page = await hs('/crm/v3/objects/calls/search', { method: 'POST', body: JSON.stringify(body) });
-      const ids = (page.results || []).map(r => r.id);
-      if (ids.length) {
-        let assoc = { results: [] };
-        try {
-          assoc = await hs('/crm/v4/associations/calls/contacts/batch/read',
-            { method: 'POST', body: JSON.stringify({ inputs: ids.map(id => ({ id })) }) });
-        } catch (e) { /* a page without associations is not fatal */ }
-        const map = new Map();
-        for (const a of assoc.results || []) map.set(a.from.id, (a.to || []).map(t => t.toObjectId));
-        for (const r of page.results || []) {
-          const p = r.properties || {};
-          for (const cid of (map.get(r.id) || [])) {
-            const key = String(cid);
-            if (!S.leads.has(key)) continue;          // only keep calls for leads this desk holds
-            if (!byContact.has(key)) byContact.set(key, []);
-            byContact.get(key).push({
-              at: p.hs_timestamp,
-              disposition: dispositions.get(p.hs_call_disposition) || p.hs_call_disposition || '',
-              seconds: Math.round((Number(p.hs_call_duration) || 0) / 1000),
-              ownerId: p.hubspot_owner_id || ''
-            });
-          }
-        }
-        n += ids.length; got += ids.length;
-      }
-      after = page.paging && page.paging.next && page.paging.next.after;
-      if (got >= CAP) break;                          // never page into the 400
-      await sleep(140);
-    } while (after);
-  }
-
-  let err = null;
-  try {
-    const now = Date.now();
-    for (let d = 0; d < LOOKBACK; d++) {              // a day at a time, split further when needed
-      await window(now - (d + 1) * DAY, now - d * DAY);
-    }
-  } catch (e) {
-    err = e.message;                                  // keep whatever was gathered before the failure
-  }
-
-  for (const [cid, calls] of byContact) {
-    const lead = S.leads.get(cid);
-    if (!lead) continue;
-    calls.sort((a, b) => new Date(b.at) - new Date(a.at));
-    const connected = calls.filter(c => /connect/i.test(c.disposition)).length;
-    lead.progress = lead.progress || {};
-    lead.progress.calls = {
-      total: calls.length,
-      connected,
-      lastAt: calls[0] ? calls[0].at : '',
-      lastDisposition: calls[0] ? calls[0].disposition : '',
-      longestSeconds: calls.reduce((m, c) => Math.max(m, c.seconds), 0),
-      recent: calls.slice(0, 12)
-    };
-  }
-  S.meta.calls = { at: new Date().toISOString(), n, err };
-  return n;
-}
+// No calls sync. The contact itself carries what the desk needs: last_call_date_and_time
+// for the last conversation, callscurrent_stage for calls made in the current stage, and
+// call_in_current_stage_by_current_owner for how many of those the present owner made.
+// Fetching the call objects meant walking roughly 25,000 records a week through a search
+// API that caps at 10,000, for three numbers already sitting on the lead.
 
 // ---------------------------------------------------------------- api
 function shape(l) {
@@ -452,7 +353,6 @@ function shape(l) {
     ownerActive: l.ownerId ? (o ? o.active : null) : 'unowned',
     url: `https://${UI}/contacts/${PORTAL}/record/0-1/${l.id}`,
     progress: {
-      calls: pr.calls ? { total: pr.calls.total, connected: pr.calls.connected, lastAt: ymd(pr.calls.lastAt), lastDisposition: pr.calls.lastDisposition } : null,
       stageChanges: pr.stageChanges ?? null,
       firstCounselledAt: ymd(pr.firstCounselledAt),
       ownerChanges: pr.ownerChanges ?? null,
@@ -528,10 +428,6 @@ app.get('/api/lead/:id', async (req, res) => {
     const o = S.owners.get(String(v.ownerId));
     return { owner: o ? o.name : String(v.ownerId), active: o ? o.active : null, at: ymd(v.at) };
   });
-  out.recentCalls = (pr.calls && pr.calls.recent || []).map(c => {
-    const o = S.owners.get(String(c.ownerId));
-    return { at: ymd(c.at), disposition: c.disposition, seconds: c.seconds, by: o ? o.name : '' };
-  });
   try {
     const r = await hs(`/crm/v3/objects/contacts/${lead.id}?properties=call_engagement_transcript_real_one,ryl_aicall_transcript,reason_for_notinteresteddisqualifiedghosted,ni_reason_notes`);
     const p = r.properties || {};
@@ -573,7 +469,6 @@ async function runAll() {
   await safe('owners', syncOwners);
   await safe('leads', syncLeads);
   await safe('history', syncHistory);
-  await safe('calls', syncCalls);
 }
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
@@ -581,6 +476,5 @@ app.listen(port, () => {
   runAll().catch(e => console.error('first sync failed', e));
   setInterval(() => safe('leads', syncLeads), (Number(process.env.SYNC_MINUTES) || 10) * MIN);
   setInterval(() => safe('history', syncHistory), (Number(process.env.HISTORY_MINUTES) || 60) * MIN);
-  setInterval(() => safe('calls', syncCalls), (Number(process.env.CALLS_MINUTES) || 60) * MIN);
   setInterval(() => safe('owners', syncOwners), 6 * 60 * MIN);
 });

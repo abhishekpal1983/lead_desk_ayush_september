@@ -229,7 +229,7 @@ async function boot(){
   const s = META.sync || {};
   $('mastmeta').innerHTML =
     `<span>${fmt(META.leads)} leads</span><span>leads ${ago(s.leads && s.leads.at)}</span>` +
-    `<span>history ${ago(s.history && s.history.at)}</span><span>calls ${ago(s.calls && s.calls.at)}</span>` +
+    `<span>history ${ago(s.history && s.history.at)}</span>` +
     `<span class="pos">read only</span>`;
   const err = Object.entries(s).filter(([, v]) => v && v.err).map(([k, v]) => `${k}: ${v.err}`);
   if (err.length) $('mastmeta').innerHTML += `<span class="neg">${err[0]}</span>`;
@@ -427,7 +427,7 @@ async function openLead(id){
   const d = $('drawer');
   d.innerHTML = '<div class="drawer"><p class="dim">loading</p></div>';
   const l = await (await fetch('/api/lead/' + id)).json();
-  const p = l.progress || {}, c = p.calls || {};
+  const p = l.progress || {};
   d.innerHTML = `<div class="drawer">
     <button class="btn" onclick="document.getElementById('drawer').innerHTML=''" style="float:right">close</button>
     <h2>${l.name}</h2>
@@ -440,15 +440,14 @@ async function openLead(id){
       <dt>Owner moves</dt><dd>${p.ownerChanges ?? 'unknown'}</dd>
       <dt>Stage moves</dt><dd>${p.stageChanges ?? 'unknown'} · ${l.daysInStage ?? '?'} days in this stage</dd>
       <dt>First counselled</dt><dd>${p.firstCounselledAt || 'never'}</dd>
-      <dt>Calls</dt><dd>${c.total ?? 0} total, ${c.connected ?? 0} connected · ${l.callsInStage} in this stage, ${l.callsByOwner} by the current owner</dd>
-      <dt>Last talk</dt><dd>${c.lastAt || 'never'}${c.lastDisposition ? ' · ' + c.lastDisposition : ''}</dd>
+      <dt>Calls</dt><dd>${l.callsInStage} in this stage, ${l.callsByOwner} of them by the current owner</dd>
+      <dt>Last call</dt><dd>${l.lastCallAt || 'never'}</dd>
       <dt>Follow up</dt><dd class="${l.followUpAt && l.followUpAt < today ? 'neg' : ''}">${l.followUpAt || 'none set'}</dd>
       <dt>Segment</dt><dd>${l.student}${l.intl ? ' · international' : ''}${l.score ? ' · score ' + l.score : ''} · ${l.source || 'no source'}</dd>
     </dl>
     ${p.inheritedUntouched ? '<div class="call warnbox"><span class="k">Inherited and untouched</span><p>Worked by a previous owner and never called by the current one.</p></div>' : ''}
     <h3>Stage history</h3><ul class="tl">${(l.stagePath || []).map(s => `<li><b>${stageName(s.stage)}</b> <span class="dim">${s.at}</span></li>`).join('') || '<li class="dim">no history recorded</li>'}</ul>
     <h3>Owner history</h3><ul class="tl">${(l.ownerPath || []).map(o => `<li><b>${o.owner}</b>${o.active === false ? ' <span class="badge b-off">archived</span>' : ''} <span class="dim">${o.at}</span></li>`).join('') || '<li class="dim">never reassigned</li>'}</ul>
-    <h3>Recent calls</h3><ul class="tl">${(l.recentCalls || []).map(x => `<li>${x.at} · ${x.disposition || 'no disposition'} · ${x.seconds}s${x.by ? ' · ' + x.by : ''}</li>`).join('') || '<li class="dim">no call records in the last 120 days</li>'}</ul>
     ${l.reason ? `<h3>Reason recorded</h3><pre>${esc(l.reason)}</pre>` : ''}
     <h3>Call transcript</h3><pre>${l.transcript ? esc(l.transcript) : 'no sales call transcript on this lead'}</pre>
     ${l.aiTranscript ? `<h3>AI caller transcript</h3><pre>${esc(l.aiTranscript)}</pre>` : ''}
