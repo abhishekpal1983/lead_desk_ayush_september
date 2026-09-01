@@ -346,26 +346,38 @@ async function syncCalls() {
     for (const o of (d.options || [])) dispositions.set(o.value, o.label);
   } catch (e) { /* labels are a nicety, carry on without them */ }
 
+  // The same 10,000 ceiling applies here, and this desk logs roughly 25,000 calls a week,
+  // so even a one week window overflows it. Windows are probed and halved until each fits.
   const byContact = new Map();
   let n = 0;
-  // The 10,000 cap applies here too, and a busy desk logs far more than that in 120 days,
-  // so walk the window a week at a time instead of one large query.
-  const DAY = 86400000, WEEK = 7 * DAY;
-  for (let end = Date.now(); end > Date.now() - 120 * DAY; end -= WEEK) {
-    const from = new Date(end - WEEK).toISOString();
-    const to = new Date(end).toISOString();
-    let after;
+  const DAY = 86400000;
+  const LOOKBACK = Number(process.env.CALL_LOOKBACK_DAYS) || 45;
+
+  async function window(fromMs, toMs, depth = 0) {
+    const from = new Date(fromMs).toISOString(), to = new Date(toMs).toISOString();
+    const base = [{ propertyName: 'hs_timestamp', operator: 'BETWEEN', value: from, highValue: to }];
+    const probe = await hs('/crm/v3/objects/calls/search', {
+      method: 'POST',
+      body: JSON.stringify({ filterGroups: [{ filters: base }], properties: ['hs_timestamp'], limit: 1 })
+    });
+    const total = probe.total || 0;
+    if (!total) return;
+    if (total > CAP && depth < 12 && toMs - fromMs > 3600000) {   // halve, down to an hour
+      const mid = Math.floor((fromMs + toMs) / 2);
+      await window(fromMs, mid, depth + 1);
+      await window(mid, toMs, depth + 1);
+      return;
+    }
+    let after, got = 0;
     do {
       const body = {
-        filterGroups: [{ filters: [{ propertyName: 'hs_timestamp', operator: 'BETWEEN', value: from, highValue: to }] }],
-        properties: ['hs_timestamp', 'hs_call_disposition', 'hs_call_duration', 'hubspot_owner_id', 'hs_call_direction'],
+        filterGroups: [{ filters: base }],
+        properties: ['hs_timestamp', 'hs_call_disposition', 'hs_call_duration', 'hubspot_owner_id'],
+        sorts: [{ propertyName: 'hs_timestamp', direction: 'ASCENDING' }],
         limit: 100
       };
       if (after) body.after = after;
-      let page;
-      try {
-        page = await hs('/crm/v3/objects/calls/search', { method: 'POST', body: JSON.stringify(body) });
-      } catch (e) { S.meta.calls.err = e.message; break; }
+      const page = await hs('/crm/v3/objects/calls/search', { method: 'POST', body: JSON.stringify(body) });
       const ids = (page.results || []).map(r => r.id);
       if (ids.length) {
         let assoc = { results: [] };
@@ -379,7 +391,7 @@ async function syncCalls() {
           const p = r.properties || {};
           for (const cid of (map.get(r.id) || [])) {
             const key = String(cid);
-            if (!S.leads.has(key)) continue;              // only keep calls for leads we hold
+            if (!S.leads.has(key)) continue;          // only keep calls for leads this desk holds
             if (!byContact.has(key)) byContact.set(key, []);
             byContact.get(key).push({
               at: p.hs_timestamp,
@@ -389,11 +401,22 @@ async function syncCalls() {
             });
           }
         }
-        n += ids.length;
+        n += ids.length; got += ids.length;
       }
       after = page.paging && page.paging.next && page.paging.next.after;
+      if (got >= CAP) break;                          // never page into the 400
       await sleep(140);
     } while (after);
+  }
+
+  let err = null;
+  try {
+    const now = Date.now();
+    for (let d = 0; d < LOOKBACK; d++) {              // a day at a time, split further when needed
+      await window(now - (d + 1) * DAY, now - d * DAY);
+    }
+  } catch (e) {
+    err = e.message;                                  // keep whatever was gathered before the failure
   }
 
   for (const [cid, calls] of byContact) {
@@ -411,7 +434,7 @@ async function syncCalls() {
       recent: calls.slice(0, 12)
     };
   }
-  S.meta.calls = { at: new Date().toISOString(), n, err: S.meta.calls.err };
+  S.meta.calls = { at: new Date().toISOString(), n, err };
   return n;
 }
 
@@ -549,8 +572,8 @@ async function safe(name, fn) {
 async function runAll() {
   await safe('owners', syncOwners);
   await safe('leads', syncLeads);
-  await safe('calls', syncCalls);
   await safe('history', syncHistory);
+  await safe('calls', syncCalls);
 }
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
