@@ -299,6 +299,25 @@ async function loadLeads(){
   else $('aSum').textContent = label + ` · ${fmt(theirs.length)} need an owner`;
   render();
 }
+// The stage dropdowns are built from the data that came back. When a stage is already
+// selected the response only holds that stage, so the list is left alone rather than
+// collapsing to one option and trapping the filter.
+const STAGE_ORDER = ['payment_prospect', 'counselled', 'pricing_pitched', 'program_pitched',
+  'discovery', 'Follow up', 'FU_RCB', 'FU_DNP', 'rcb_requested_callback', 'dnp_did_not_pick'];
+function fillStages(rows){
+  const n = new Map();
+  for (const l of rows) n.set(l.stage, (n.get(l.stage) || 0) + 1);
+  for (const id of ['qStage', 'aStage']){
+    const el = $(id);
+    if (!el) continue;
+    if (el.value) continue;                        // a filter is on, the list stays as it is
+    const seen = STAGE_ORDER.filter(s => n.has(s))
+      .concat([...n.keys()].filter(s => s && !STAGE_ORDER.includes(s)));
+    el.innerHTML = '<option value="">All stages</option>' + seen.map(s =>
+      `<option value="${s}">${stageName(s)} (${fmt(n.get(s))})</option>`).join('');
+  }
+}
+
 function drawChips(mine){
   const by = new Map();
   for (const l of mine){
@@ -454,7 +473,7 @@ async function openLead(id){
   </div>`;
 }
 function esc(s){ return String(s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
-async function refresh(){ await fetch('/api/refresh', { method: 'POST' }); say('resync started, give it a few minutes'); }
+async function refresh(){ await fetch('/api/refresh', { method: 'POST' }); flash('resync started, give it a few minutes'); }
 boot();
 </script>
 </body>
