@@ -59,26 +59,22 @@ npm start                 # http://localhost:3000
 | `crm.objects.contacts.read` | leads, properties, and the property history that drives every progress field |
 | `crm.objects.owners.read` | agent names, including archived owners |
 | `crm.objects.calls.read` | the call records behind calls total, connected and last conversation |
-| `crm.objects.contacts.write` | **reassignment only.** Without it the desk runs read only and the Assign button is disabled |
 
-Use a **separate private app** from the one `agent_lead_bucket` uses. Two reasons: this one needs a
-write scope that the other must not have, and a rotation here should not take that dashboard down.
+**This service is read only.** It has no write endpoint and needs no write scope, so the existing
+`agent_lead_bucket` service key works without modification. Reassignment happens in HubSpot: the
+Assign tab copies the selected leads' emails, semicolon separated, and you paste them into a Contacts
+filter on Email "is any of", select all, and use Assign there. The destructive step keeps HubSpot's
+own audit trail and undo.
 
-### Turning writes on
-
-Reassignment is off by default. To enable it: add `crm.objects.contacts.write` to the token, set
-`ALLOW_WRITE=1`, and redeploy. Until both are true, `/api/assign` returns a dry run describing what it
-would have done, and the UI shows READ ONLY in the header.
-
-Set `DESK_KEY` to something long in any shared deployment. There is no login on this app, so without
-that key anyone with the URL can reassign leads.
+Set `DESK_KEY` to something long in any shared deployment, so `/api/refresh` cannot be triggered by
+anyone with the URL.
 
 ## Sync cadence
 
 | Sync | Default | Cost |
 |---|---|---|
-| leads | every 10 min | one search per creator per stage group, 100 per page |
-| calls | every 60 min | calls from the last 120 days, plus one association batch per page |
+| leads | every 10 min | one search per creator per stage group, split by create date whenever a partition exceeds 9,000 |
+| calls | every 60 min | calls from the last 120 days, walked a week at a time, plus one association batch per page |
 | history | every 60 min | `batch/read` at 50 ids per call, in scope workable and IFC leads only |
 | owners | every 6 h | two passes, active and archived |
 
@@ -94,7 +90,6 @@ between them. Widening that filter will make the sync take hours, so widen it on
 | `GET /api/agents?creator=` | every owner holding leads, with counts by stage group, P1 count, overdue, uncalled, value |
 | `GET /api/leads?creator=&owner=&stage=&tier=&group=&minValue=&limit=` | the queue, ordered by value |
 | `GET /api/lead/:id` | one lead in full: stage path, owner path, recent calls, transcript |
-| `POST /api/assign` | `{ids:[], ownerId, dryRun}`. Writes owner in batches of 100 |
 | `POST /api/refresh` | kick every sync |
 | `GET /api/health` | running SHA free health check for the deploy |
 
@@ -102,11 +97,22 @@ between them. Widening that filter will make the sync take hours, so widen it on
 
 1. New GitHub repo, push this directory.
 2. New Railway **service**, not a new environment on the existing one. Point it at the repo.
-3. Set the env vars from `.env.example`. Leave `ALLOW_WRITE` unset for the first deploy.
+3. Set the env vars from `.env.example`.
 4. Confirm the build is live at `/api/health` with a cache busting query, since a plain fetch can
    return a response cached from an older build.
 5. Watch the logs for `leads: N`, `calls: N`, `history: N`. First boot takes a few minutes.
-6. Once the numbers look right, add the write scope and set `ALLOW_WRITE=1`.
+6. That is the whole setup. There is no write step, because the desk never writes.
+
+## What is synced, and what is not
+
+Only callable leads: the nine workable stages, interested in future, and fresh. **Churned and won
+are deliberately not synced.** They are the bulk of the records, they are in nobody's calling queue,
+and including them pushed single partitions past HubSpot's 10,000 result ceiling.
+
+That ceiling is the thing to understand before changing any query here. The search API does not
+return an empty page past 10,000, it returns a 400. So every partition is probed for its total
+first, and any partition above 9,000 is split down the middle by create date and retried,
+recursively. The calls sync walks its 120 day window a week at a time for the same reason.
 
 ## Known limits
 
@@ -115,4 +121,4 @@ between them. Widening that filter will make the sync take hours, so widen it on
   leads, so it cannot say which stage a lead ghosted from. Stage history is the only honest source.
 - Call association is read from the last 120 days. A lead whose only calls are older will show zero
   calls total while still showing a `callscurrent_stage` value from the contact property.
-- The desk does not create tasks or log activity. It reads, ranks, and reassigns.
+- The desk does not create tasks, log activity, or change any record. It reads and ranks, nothing else.

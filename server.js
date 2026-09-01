@@ -30,7 +30,6 @@ const WORKABLE = ['rcb_requested_callback', 'discovery', 'program_pitched', 'pri
 const LATE = ['pricing_pitched', 'counselled', 'payment_prospect'];
 const EARLY = ['rcb_requested_callback', 'discovery', 'program_pitched'];
 const FOLLOWUP = ['Follow up', 'FU_DNP', 'FU_RCB'];
-const CHURNED = ['dnp_did_not_pick', 'ghosted', 'ni_not_interested', 'disqualified'];
 
 // Properties pulled in bulk. The transcript is deliberately NOT here: it is multi kilobyte
 // per lead and no list view shows it. It is fetched one lead at a time in /api/lead/:id.
@@ -151,63 +150,100 @@ function studentOf(p) {
 }
 
 // ---------------------------------------------------------------- sync: leads
+// HubSpot's search API hard caps at 10,000 results per query: paging past it returns a 400,
+// not an empty page. So every partition is probed first, and any partition over the cap is
+// split down the middle by create date and retried, recursively, until each piece fits.
+//
+// Only callable leads are synced: the nine workable stages, parked interest, and fresh.
+// Churned and won are deliberately excluded. They are the bulk of the records, they are not
+// in anyone's calling queue, and pulling them was what pushed partitions over the cap.
+const SYNC_GROUPS = [
+  { name: 'workable', filter: { propertyName: 'contact_engagement_stage', operator: 'IN', values: WORKABLE } },
+  { name: 'ifc', filter: { propertyName: 'contact_engagement_stage', operator: 'EQ', value: 'IFC' } },
+  { name: 'fresh', filter: { propertyName: 'contact_engagement_stage', operator: 'NOT_HAS_PROPERTY' } }
+];
+const CAP = 9000;                     // stay clear of the 10,000 ceiling
+const EPOCH = '2020-01-01';
+
+async function searchPartition(filters, from, to, sink, depth = 0) {
+  const range = { propertyName: 'createdate', operator: 'BETWEEN', value: from, highValue: to };
+  const all = [...filters, range];
+  const probe = await hs('/crm/v3/objects/contacts/search', {
+    method: 'POST',
+    body: JSON.stringify({ filterGroups: [{ filters: all }], properties: ['hs_object_id'], limit: 1 })
+  });
+  const total = probe.total || 0;
+  if (!total) return 0;
+  if (total > CAP && depth < 14) {
+    const a = new Date(from).getTime(), b = new Date(to).getTime();
+    if (b - a > 86400000) {                         // still splittable
+      const mid = new Date(Math.floor((a + b) / 2)).toISOString().slice(0, 10);
+      return (await searchPartition(filters, from, mid, sink, depth + 1))
+           + (await searchPartition(filters, mid, to, sink, depth + 1));
+    }
+    // a single day over the cap: take the first 9,000 and log it rather than fail the sync
+    console.warn(`partition ${from} holds ${total}, above the cap and cannot be split further`);
+  }
+  let after, n = 0;
+  do {
+    const body = { filterGroups: [{ filters: all }], properties: PROPS, limit: 100 };
+    if (after) body.after = after;
+    const page = await hs('/crm/v3/objects/contacts/search', { method: 'POST', body: JSON.stringify(body) });
+    for (const r of page.results || []) { sink(r); n++; }
+    after = page.paging && page.paging.next && page.paging.next.after;
+    if (n >= CAP) break;                             // never page into the 400
+    await sleep(120);
+  } while (after);
+  return n;
+}
+
 async function syncLeads() {
   const seen = new Set();
   let total = 0;
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   for (const creator of CREATORS) {
-    // Search caps at 10,000 per query, so partition by creator and then by stage group.
-    const groups = [WORKABLE, ['IFC'], CHURNED, ['deal_won'], null]; // null = fresh, stage empty
-    for (const group of groups) {
-      let after = undefined;
-      do {
-        const filters = [{ propertyName: 'topmate_username', operator: 'EQ', value: creator }];
-        if (group) filters.push({ propertyName: 'contact_engagement_stage', operator: 'IN', values: group });
-        else filters.push({ propertyName: 'contact_engagement_stage', operator: 'NOT_HAS_PROPERTY' });
-        const body = { filterGroups: [{ filters }], properties: PROPS, limit: 100 };
-        if (after) body.after = after;
-        const page = await hs('/crm/v3/objects/contacts/search', { method: 'POST', body: JSON.stringify(body) });
-        for (const r of page.results || []) {
-          const p = r.properties || {};
-          const id = r.id;
-          const prev = S.leads.get(id) || {};
-          const lead = {
-            id,
-            name: [p.firstname, p.lastname].filter(Boolean).join(' ').trim() || (p.email || '').split('@')[0] || 'no name',
-            email: (p.email || '').toLowerCase(),
-            phone: p.phone || '',
-            creator: p.topmate_username || '',
-            stage: p.contact_engagement_stage || '',
-            ownerId: p.hubspot_owner_id || '',
-            callsInStage: Number(p.callscurrent_stage) || 0,
-            callsByOwner: Number(p.call_in_current_stage_by_current_owner) || 0,
-            lastCallAt: p.last_call_date_and_time || '',
-            followUpAt: p.follow_up_date_and_time || '',
-            stageChangedAt: p.engagement_stage_last_changed_at || '',
-            createdAt: p.createdate || '',
-            score: p.conversion_probability_score ? Number(p.conversion_probability_score) : null,
-            student: studentOf(p),
-            counsellingDone: p.counselling_done === 'true',
-            counsellingDate: p.counselling_date || '',
-            source: p.actual_source || '',
-            intl: p.international_number === 'true',
-            touches: Number(p.num_contacted_notes) || 0,
-            // progress fields, filled by the history and calls syncs, preserved across lead syncs
-            progress: prev.progress || null
-          };
-          lead.daysInStage = daysSince(lead.stageChangedAt);
-          lead.value = scoreOf(lead);
-          lead.tier = tierOf(lead.value);
-          lead.inScope = inScope(lead);
-          S.leads.set(id, lead);
-          seen.add(id);
-          total++;
-        }
-        after = page.paging && page.paging.next && page.paging.next.after;
-        await sleep(120);                      // ~8 requests a second, comfortably inside the limit
-      } while (after);
+    for (const group of SYNC_GROUPS) {
+      const filters = [
+        { propertyName: 'topmate_username', operator: 'EQ', value: creator },
+        group.filter
+      ];
+      total += await searchPartition(filters, EPOCH, tomorrow, r => {
+        const p = r.properties || {};
+        const id = r.id;
+        const prev = S.leads.get(id) || {};
+        const lead = {
+          id,
+          name: [p.firstname, p.lastname].filter(Boolean).join(' ').trim() || (p.email || '').split('@')[0] || 'no name',
+          email: (p.email || '').toLowerCase(),
+          phone: p.phone || '',
+          creator: p.topmate_username || '',
+          stage: p.contact_engagement_stage || '',
+          ownerId: p.hubspot_owner_id || '',
+          callsInStage: Number(p.callscurrent_stage) || 0,
+          callsByOwner: Number(p.call_in_current_stage_by_current_owner) || 0,
+          lastCallAt: p.last_call_date_and_time || '',
+          followUpAt: p.follow_up_date_and_time || '',
+          stageChangedAt: p.engagement_stage_last_changed_at || '',
+          createdAt: p.createdate || '',
+          score: p.conversion_probability_score ? Number(p.conversion_probability_score) : null,
+          student: studentOf(p),
+          counsellingDone: p.counselling_done === 'true',
+          counsellingDate: p.counselling_date || '',
+          source: p.actual_source || '',
+          intl: p.international_number === 'true',
+          touches: Number(p.num_contacted_notes) || 0,
+          progress: prev.progress || null      // preserved across lead syncs
+        };
+        lead.daysInStage = daysSince(lead.stageChangedAt);
+        lead.value = scoreOf(lead);
+        lead.tier = tierOf(lead.value);
+        lead.inScope = inScope(lead);
+        S.leads.set(id, lead);
+        seen.add(id);
+      });
     }
   }
-  for (const id of [...S.leads.keys()]) if (!seen.has(id)) S.leads.delete(id);  // drop leads that left scope
+  for (const id of [...S.leads.keys()]) if (!seen.has(id)) S.leads.delete(id);
   S.meta.leads = { at: new Date().toISOString(), n: total, err: null };
   return total;
 }
@@ -310,48 +346,55 @@ async function syncCalls() {
     for (const o of (d.options || [])) dispositions.set(o.value, o.label);
   } catch (e) { /* labels are a nicety, carry on without them */ }
 
-  const since = new Date(Date.now() - 120 * 86400000).toISOString();
   const byContact = new Map();
-  let after = undefined, n = 0;
-  do {
-    const body = {
-      filterGroups: [{ filters: [{ propertyName: 'hs_timestamp', operator: 'GTE', value: since }] }],
-      properties: ['hs_timestamp', 'hs_call_disposition', 'hs_call_duration', 'hubspot_owner_id', 'hs_call_direction'],
-      limit: 100
-    };
-    if (after) body.after = after;
-    let page;
-    try {
-      page = await hs('/crm/v3/objects/calls/search', { method: 'POST', body: JSON.stringify(body) });
-    } catch (e) { S.meta.calls.err = e.message; break; }
-    const ids = (page.results || []).map(r => r.id);
-    if (ids.length) {
-      // associations come back separately; one batch call per page keeps this cheap
-      let assoc = { results: [] };
+  let n = 0;
+  // The 10,000 cap applies here too, and a busy desk logs far more than that in 120 days,
+  // so walk the window a week at a time instead of one large query.
+  const DAY = 86400000, WEEK = 7 * DAY;
+  for (let end = Date.now(); end > Date.now() - 120 * DAY; end -= WEEK) {
+    const from = new Date(end - WEEK).toISOString();
+    const to = new Date(end).toISOString();
+    let after;
+    do {
+      const body = {
+        filterGroups: [{ filters: [{ propertyName: 'hs_timestamp', operator: 'BETWEEN', value: from, highValue: to }] }],
+        properties: ['hs_timestamp', 'hs_call_disposition', 'hs_call_duration', 'hubspot_owner_id', 'hs_call_direction'],
+        limit: 100
+      };
+      if (after) body.after = after;
+      let page;
       try {
-        assoc = await hs('/crm/v4/associations/calls/contacts/batch/read',
-          { method: 'POST', body: JSON.stringify({ inputs: ids.map(id => ({ id })) }) });
-      } catch (e) { /* a page without associations is not fatal */ }
-      const map = new Map();
-      for (const a of assoc.results || []) map.set(a.from.id, (a.to || []).map(t => t.toObjectId));
-      for (const r of page.results || []) {
-        const contacts = map.get(r.id) || [];
-        const p = r.properties || {};
-        for (const cid of contacts) {
-          if (!byContact.has(String(cid))) byContact.set(String(cid), []);
-          byContact.get(String(cid)).push({
-            at: p.hs_timestamp,
-            disposition: dispositions.get(p.hs_call_disposition) || p.hs_call_disposition || '',
-            seconds: Math.round((Number(p.hs_call_duration) || 0) / 1000),
-            ownerId: p.hubspot_owner_id || ''
-          });
+        page = await hs('/crm/v3/objects/calls/search', { method: 'POST', body: JSON.stringify(body) });
+      } catch (e) { S.meta.calls.err = e.message; break; }
+      const ids = (page.results || []).map(r => r.id);
+      if (ids.length) {
+        let assoc = { results: [] };
+        try {
+          assoc = await hs('/crm/v4/associations/calls/contacts/batch/read',
+            { method: 'POST', body: JSON.stringify({ inputs: ids.map(id => ({ id })) }) });
+        } catch (e) { /* a page without associations is not fatal */ }
+        const map = new Map();
+        for (const a of assoc.results || []) map.set(a.from.id, (a.to || []).map(t => t.toObjectId));
+        for (const r of page.results || []) {
+          const p = r.properties || {};
+          for (const cid of (map.get(r.id) || [])) {
+            const key = String(cid);
+            if (!S.leads.has(key)) continue;              // only keep calls for leads we hold
+            if (!byContact.has(key)) byContact.set(key, []);
+            byContact.get(key).push({
+              at: p.hs_timestamp,
+              disposition: dispositions.get(p.hs_call_disposition) || p.hs_call_disposition || '',
+              seconds: Math.round((Number(p.hs_call_duration) || 0) / 1000),
+              ownerId: p.hubspot_owner_id || ''
+            });
+          }
         }
+        n += ids.length;
       }
-      n += ids.length;
-    }
-    after = page.paging && page.paging.next && page.paging.next.after;
-    await sleep(150);
-  } while (after);
+      after = page.paging && page.paging.next && page.paging.next.after;
+      await sleep(140);
+    } while (after);
+  }
 
   for (const [cid, calls] of byContact) {
     const lead = S.leads.get(cid);
@@ -416,7 +459,7 @@ app.get('/api/agents', (req, res) => {
       by.set(key, {
         ownerId: l.ownerId, name: l.ownerId ? (o ? o.name : 'unresolved') : 'Unowned',
         active: l.ownerId ? (o ? o.active : null) : null,
-        total: 0, fresh: 0, early: 0, followUp: 0, late: 0, ifc: 0, churned: 0,
+        total: 0, fresh: 0, early: 0, followUp: 0, late: 0, ifc: 0,
         p1: 0, p2: 0, value: 0, overdue: 0, uncalled: 0
       });
     }
@@ -427,7 +470,6 @@ app.get('/api/agents', (req, res) => {
     else if (FOLLOWUP.includes(l.stage)) a.followUp++;
     else if (LATE.includes(l.stage)) a.late++;
     else if (l.stage === 'IFC') a.ifc++;
-    else if (CHURNED.includes(l.stage)) a.churned++;
     if (l.tier === 'P1') a.p1++; else if (l.tier === 'P2') a.p2++;
     if (l.followUpAt && new Date(l.followUpAt) < new Date()) a.overdue++;
     if (WORKABLE.includes(l.stage) && !l.callsInStage) a.uncalled++;
