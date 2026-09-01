@@ -8,7 +8,9 @@
  *   - keeps a live picture of every workable and fresh lead for the configured creators
  *   - tracks progress per lead: calls, stage movement, owner movement, last conversation
  *   - serves a per agent calling queue ordered by expected value
- *   - reassigns leads in bulk, writing back to HubSpot when ALLOW_WRITE is set
+ *   - hands you the selected leads' emails to paste into HubSpot, where reassignment happens
+ *
+ * It is read only. There is no write endpoint and it needs no write scope.
  */
 
 const express = require('express');
@@ -20,7 +22,6 @@ const TOKEN = process.env.HUBSPOT_TOKEN || process.env.HUBSPOT_ACCESS_TOKEN;
 const CREATORS = (process.env.CREATORS || '').split(',').map(s => s.trim()).filter(Boolean);
 const PORTAL = process.env.HS_PORTAL_ID || '';
 const UI = process.env.HS_UI_DOMAIN || 'app.hubspot.com';
-const ALLOW_WRITE = process.env.ALLOW_WRITE === '1';
 const DESK_KEY = process.env.DESK_KEY || '';
 const MIN = 60 * 1000;
 
@@ -125,7 +126,7 @@ const S = {
     calls: { at: null, n: 0, err: null },
     owners: { at: null, n: 0, err: null }
   },
-  writable: ALLOW_WRITE
+  readOnly: true
 };
 
 function ymd(v) {
@@ -398,7 +399,7 @@ function shape(l) {
 
 app.get('/api/meta', (req, res) => {
   res.json({
-    creators: CREATORS, leads: S.leads.size, writable: S.writable,
+    creators: CREATORS, leads: S.leads.size, readOnly: true,
     scopeRules: Object.fromEntries(Object.entries(SCOPE).map(([k, v]) => [k, v.label])),
     sync: S.meta, portal: PORTAL, ui: UI
   });
@@ -483,50 +484,10 @@ function guard(req, res) {
   return true;
 }
 
-// Bulk reassignment. Writes to HubSpot only when ALLOW_WRITE is set and the token carries
-// crm.objects.contacts.write. Without both it returns a dry run so the UI still works.
-app.post('/api/assign', async (req, res) => {
-  if (!guard(req, res)) return;
-  const { ids, ownerId, dryRun } = req.body || {};
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids is required' });
-  if (!ownerId) return res.status(400).json({ error: 'ownerId is required' });
-  const owner = S.owners.get(String(ownerId));
-  if (!owner) return res.status(400).json({ error: 'unknown ownerId' });
-  if (!owner.active) return res.status(400).json({ error: 'that owner is archived, pick an active one' });
-
-  const plan = ids.filter(id => S.leads.has(String(id))).map(String);
-  if (dryRun || !ALLOW_WRITE) {
-    return res.json({
-      applied: false,
-      reason: dryRun ? 'dry run requested' : 'ALLOW_WRITE is not set, so the desk is read only',
-      wouldUpdate: plan.length, ownerId, ownerName: owner.name
-    });
-  }
-  let updated = 0; const failures = [];
-  for (const batch of chunk(plan, 100)) {
-    try {
-      await hs('/crm/v3/objects/contacts/batch/update', {
-        method: 'POST',
-        body: JSON.stringify({ inputs: batch.map(id => ({ id, properties: { hubspot_owner_id: String(ownerId) } })) })
-      });
-      for (const id of batch) {
-        const l = S.leads.get(id);
-        if (l) {
-          l.ownerId = String(ownerId);
-          l.progress = l.progress || {};
-          l.progress.assignedToCurrentOwnerAt = new Date().toISOString();
-          l.progress.daysWithCurrentOwner = 0;
-          l.progress.ownerChanges = (l.progress.ownerChanges || 0) + 1;
-        }
-        updated++;
-      }
-    } catch (e) {
-      failures.push({ batch: batch.length, error: e.message });
-    }
-    await sleep(200);
-  }
-  res.json({ applied: true, updated, failures, ownerId, ownerName: owner.name });
-});
+// This desk is READ ONLY by design. It never writes to HubSpot.
+// Reassignment is done in HubSpot itself: copy the emails from the Assign tab, filter Contacts on
+// Email "is any of", select all, and use Assign. That keeps the destructive step where it has an
+// audit trail and an undo, and it means this service never needs a write scope on its token.
 
 app.post('/api/refresh', async (req, res) => {
   if (!guard(req, res)) return;
@@ -535,7 +496,7 @@ app.post('/api/refresh', async (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, leads: S.leads.size, owners: S.owners.size, writable: S.writable, sync: S.meta, at: new Date().toISOString() });
+  res.json({ ok: true, leads: S.leads.size, owners: S.owners.size, readOnly: true, sync: S.meta, at: new Date().toISOString() });
 });
 
 // ---------------------------------------------------------------- scheduling
@@ -551,7 +512,7 @@ async function runAll() {
 }
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`lead desk listening on ${port}, ${CREATORS.length} creators, write ${ALLOW_WRITE ? 'enabled' : 'disabled'}`);
+  console.log(`lead desk listening on ${port}, ${CREATORS.length} creators, read only`);
   runAll().catch(e => console.error('first sync failed', e));
   setInterval(() => safe('leads', syncLeads), (Number(process.env.SYNC_MINUTES) || 10) * MIN);
   setInterval(() => safe('history', syncHistory), (Number(process.env.HISTORY_MINUTES) || 60) * MIN);

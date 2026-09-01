@@ -4,129 +4,237 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lead Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
-:root{color-scheme:light;--bg:#FAF8F4;--surface:#fff;--surface2:#F3EFE8;--ink:#171A1F;--ink2:#565C66;
- --muted:#8A9099;--line:#E4DFD6;--line2:#D3CCBF;--accent:#9A5B1F;--accent-soft:#F0E3D3;
- --pos:#2F6B4F;--neg:#A6382A;--warn:#8A6A18}
-@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#131519;--surface:#1A1D22;--surface2:#22262D;
- --ink:#EDEAE4;--ink2:#A0A6B0;--muted:#7B828C;--line:#292D34;--line2:#3A404A;--accent:#DA9A55;
- --accent-soft:#2E2519;--pos:#6FB894;--neg:#E28270;--warn:#D2AC55}}
+:root{
+  color-scheme:light;
+  --bg:#FAF8F4; --surface:#FFFFFF; --surface2:#F3EFE8;
+  --ink:#171A1F; --ink2:#565C66; --muted:#8A9099;
+  --line:#E4DFD6; --line2:#D3CCBF;
+  --accent:#9A5B1F; --accent-soft:#F0E3D3;
+  --pos:#2F6B4F; --neg:#A6382A; --warn:#8A6A18;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    color-scheme:dark;
+    --bg:#131519; --surface:#1A1D22; --surface2:#22262D;
+    --ink:#EDEAE4; --ink2:#A0A6B0; --muted:#7B828C;
+    --line:#292D34; --line2:#3A404A;
+    --accent:#DA9A55; --accent-soft:#2E2519;
+    --pos:#6FB894; --neg:#E28270; --warn:#D2AC55;
+  }
+}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
-.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums}
-header{padding:18px 24px;border-bottom:2px solid var(--ink);display:flex;flex-wrap:wrap;gap:18px;align-items:baseline}
-h1{font-size:19px;margin:0;letter-spacing:-.01em}
-.sync{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);letter-spacing:.04em}
-.wrap{padding:20px 24px 80px}
-.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
-select,button,input{font:inherit;font-size:12px;padding:7px 10px;border:1px solid var(--line2);
- background:var(--surface);color:var(--ink);border-radius:3px}
-button{cursor:pointer}
-button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-button.danger{background:var(--neg);color:#fff;border-color:var(--neg)}
-button:disabled{opacity:.4;cursor:not-allowed}
-label{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-bottom:20px}
-.card{background:var(--surface);border:1px solid var(--line);padding:13px;cursor:pointer;border-radius:3px}
-.card:hover{border-color:var(--accent)}
-.card[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
-.card .nm{font-weight:600;font-size:14px;margin-bottom:2px}
-.card .st{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted)}
-.card .vv{font-family:ui-monospace,monospace;font-size:12px;color:var(--ink2);margin-top:6px}
-.badge{display:inline-block;font-family:ui-monospace,monospace;font-size:9.5px;font-weight:700;
- padding:2px 5px;border-radius:3px;letter-spacing:.03em}
-.b-on{background:var(--pos);color:#fff}.b-off{background:var(--neg);color:#fff}.b-un{background:var(--muted);color:#fff}
-.tg{display:inline-block;font-family:ui-monospace,monospace;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px}
-.tg.P1{background:var(--accent);color:var(--bg)}.tg.P2{background:var(--accent-soft);color:var(--accent)}
-.tg.P3,.tg.P4{background:var(--surface2);color:var(--muted)}
-.tw{overflow-x:auto;border:1px solid var(--line);background:var(--surface);border-radius:3px}
-table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:tabular-nums;min-width:1080px}
-th{background:var(--surface2);text-align:right;padding:9px 10px;font-size:10px;letter-spacing:.07em;
- text-transform:uppercase;color:var(--ink2);border-bottom:1px solid var(--line2);white-space:nowrap;font-weight:500}
-th:nth-child(-n+3),td:nth-child(-n+3){text-align:left}
-td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
-tr:hover td{background:var(--surface2)}
+body{background:var(--bg);color:var(--ink);font-family:"Source Serif 4",Georgia,serif;
+  font-size:17px;line-height:1.62;margin:0;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1400px;margin:0 auto;padding:0 28px 140px}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+
+header.mast{padding:44px 0 22px;border-bottom:2px solid var(--ink);display:flex;flex-wrap:wrap;gap:20px;align-items:baseline}
+h1{font-family:Archivo,sans-serif;font-size:30px;font-weight:700;letter-spacing:-.02em;margin:0}
+.mastmeta{font-family:"JetBrains Mono",monospace;font-size:11.5px;letter-spacing:.05em;
+  color:var(--muted);text-transform:uppercase;display:flex;flex-wrap:wrap;gap:22px}
+
+.tabs{display:flex;border-bottom:2px solid var(--ink);margin:34px 0 0}
+.tab{font-family:Archivo,sans-serif;font-weight:600;font-size:15px;padding:11px 20px;border:none;
+  background:none;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+
+.note{font-size:15px;color:var(--ink2);max-width:74ch;margin:22px 0 0;line-height:1.55}
+
+.chips{display:flex;flex-wrap:wrap;gap:9px;margin:22px 0}
+.chip{font-family:"JetBrains Mono",monospace;font-size:11.5px;padding:11px 16px;border:1px solid var(--line2);
+  background:var(--surface);color:var(--ink2);cursor:pointer;border-radius:3px;line-height:1.45;text-align:center}
+.chip:hover{border-color:var(--accent)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chip b{display:block;font-weight:700;color:inherit;font-size:12.5px;margin-bottom:3px}
+
+.ctl{display:flex;flex-wrap:wrap;gap:11px;align-items:center;margin:18px 0;
+  font-family:"JetBrains Mono",monospace;font-size:12px}
+.ctl label{color:var(--muted);text-transform:uppercase;letter-spacing:.09em;font-size:10.5px}
+select,.btn,input[type=text]{font-family:"JetBrains Mono",monospace;font-size:12px;padding:8px 12px;
+  border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:3px}
+.btn{cursor:pointer;font-weight:500}
+.btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.sum{color:var(--muted);font-family:"JetBrains Mono",monospace;font-size:12px}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--line);background:var(--surface);border-radius:3px;margin:20px 0 8px}
+table{border-collapse:collapse;width:100%;font-family:"JetBrains Mono",monospace;font-size:12.5px;
+  font-variant-numeric:tabular-nums;min-width:900px}
+th{background:var(--surface2);text-align:right;padding:12px 14px;font-weight:500;font-size:10.5px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);border-bottom:1px solid var(--line2);white-space:nowrap}
+th.l,td.l{text-align:left}
+td{padding:11px 14px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:var(--surface2)}
+td.name{font-family:"Source Serif 4",serif;font-size:15px}
 td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line2)}
 td a:hover{color:var(--accent);border-bottom-color:var(--accent)}
-.neg{color:var(--neg)}.pos{color:var(--pos)}.dim{color:var(--muted)}
-.bar{position:sticky;bottom:0;background:var(--surface2);border-top:2px solid var(--ink);padding:12px 24px;
- display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 -24px -80px;z-index:20}
-.bar .n{font-weight:700;font-size:16px}
-.drawer{position:fixed;top:0;right:0;width:min(560px,100%);height:100%;background:var(--surface);
- border-left:2px solid var(--ink);overflow-y:auto;padding:22px;z-index:40;box-shadow:-14px 0 40px rgba(0,0,0,.14)}
-.drawer h2{font-size:17px;margin:0 0 4px}
-.drawer .sub{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);margin-bottom:16px}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:12.5px;margin-bottom:18px}
-.kv dt{color:var(--muted);font-family:ui-monospace,monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em}
-.tl{border-left:2px solid var(--line2);padding-left:14px;margin:0 0 18px}
-.tl li{list-style:none;margin-bottom:9px;font-size:12.5px;position:relative}
-.tl li:before{content:"";position:absolute;left:-19px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--accent)}
-h3{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink2);
- font-family:ui-monospace,monospace;margin:20px 0 8px}
-pre{white-space:pre-wrap;word-break:break-word;background:var(--surface2);padding:13px;font-size:11.5px;
- max-height:340px;overflow-y:auto;border-radius:3px;margin:0}
-.msg{font-size:12px}
-.empty{padding:30px;text-align:center;color:var(--muted)}
+.pos{color:var(--pos)}.neg{color:var(--neg)}.dim{color:var(--muted)}
+th.ck,td.ck{width:40px;text-align:center}
+tr.done td{opacity:.42}
+
+.tg{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:10px;font-weight:700;
+  padding:3px 7px;border-radius:3px;letter-spacing:.04em}
+.tg.P1{background:var(--accent);color:var(--bg)}
+.tg.P2{background:var(--accent-soft);color:var(--accent)}
+.tg.P3,.tg.P4{background:var(--surface2);color:var(--muted)}
+.badge{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:9.5px;font-weight:700;
+  padding:2px 6px;border-radius:3px;letter-spacing:.03em}
+.b-on{background:var(--pos);color:#fff}.b-off{background:var(--neg);color:#fff}.b-un{background:var(--muted);color:#fff}
+
+.bar{position:sticky;bottom:0;background:var(--surface2);border:1px solid var(--line2);padding:14px 18px;
+  display:flex;flex-wrap:wrap;gap:13px;align-items:center;z-index:20;margin-top:0}
+.bar .cnt{font-family:Archivo,sans-serif;font-weight:700;font-size:18px}
+
+.call{border-left:3px solid var(--accent);background:var(--surface);padding:17px 21px;margin:24px 0;max-width:78ch}
+.call p{margin:0 0 12px;font-size:15px;line-height:1.55}
+.call p:last-child{margin-bottom:0}
+.call .k{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--accent);display:block;margin-bottom:8px}
+.warnbox{border-left-color:var(--neg)}.warnbox .k{color:var(--neg)}
+
+.drawer{position:fixed;top:0;right:0;width:min(620px,100%);height:100%;background:var(--surface);
+  border-left:2px solid var(--ink);overflow-y:auto;padding:26px;z-index:60;box-shadow:-16px 0 46px rgba(0,0,0,.16)}
+.drawer h2{font-family:Archivo,sans-serif;font-size:22px;margin:0 0 4px;letter-spacing:-.01em}
+.drawer .sub{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--muted);margin:0 0 20px}
+h3{font-family:"JetBrains Mono",monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.11em;
+  color:var(--ink2);margin:24px 0 10px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:7px 18px;font-size:14px;margin:0 0 4px}
+.kv dt{font-family:"JetBrains Mono",monospace;font-size:10px;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted);padding-top:3px}
+.kv dd{margin:0}
+.tl{border-left:2px solid var(--line2);padding:0 0 0 16px;margin:0 0 6px;list-style:none}
+.tl li{margin-bottom:10px;font-size:14px;position:relative}
+.tl li:before{content:"";position:absolute;left:-21px;top:7px;width:8px;height:8px;border-radius:50%;background:var(--accent)}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--surface2);padding:15px;font-size:12px;
+  font-family:"JetBrains Mono",monospace;max-height:360px;overflow-y:auto;border-radius:3px;margin:0;line-height:1.6}
+.empty{padding:34px;text-align:center;color:var(--muted);font-family:"Source Serif 4",serif;font-size:15px}
+footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-size:14px;color:var(--muted)}
 </style>
 </head>
 <body>
-<header>
+<div class="wrap">
+
+<header class="mast">
   <h1>Lead Desk</h1>
-  <span class="sync" id="sync">loading</span>
   <span style="flex:1"></span>
-  <button onclick="refresh()">Force resync</button>
+  <div class="mastmeta" id="mastmeta"><span>loading</span></div>
+  <button class="btn" onclick="refresh()">Force resync</button>
 </header>
 
-<div class="wrap">
-  <div class="row">
-    <label for="fCreator">Creator</label><select id="fCreator" onchange="loadAgents()"></select>
-    <label for="fGroup">Group</label>
-    <select id="fGroup" onchange="loadLeads()">
-      <option value="workable">Workable</option><option value="late">Late stage</option>
-      <option value="fresh">Fresh</option><option value="">Everything</option>
-    </select>
-    <label for="fTier">Tier</label>
-    <select id="fTier" onchange="loadLeads()"><option value="">All</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
-    <label for="fStage">Stage</label><select id="fStage" onchange="loadLeads()"><option value="">All</option></select>
-    <button onclick="clearOwner()">All agents</button>
-    <span class="sync" id="count"></span>
+<div class="tabs" role="tablist">
+  <button class="tab" id="t-q" role="tab" aria-selected="true" onclick="showTab('q')">Agent queues</button>
+  <button class="tab" id="t-a" role="tab" aria-selected="false" onclick="showTab('a')">Assign leads</button>
+</div>
+
+<div id="pane-q">
+  <p class="note">Pick an agent. Their leads are ordered by value, highest first. Tick a lead when it has been
+    called; ticks are stored in this browser only. Names link to the HubSpot record.</p>
+  <div class="chips" id="chips"></div>
+  <div class="ctl">
+    <label for="fCreator">Creator</label><select id="fCreator" onchange="setCreator(this.value)"></select>
+    <label for="qTier">Tier</label>
+    <select id="qTier" onchange="loadLeads()"><option value="">All</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
+    <label for="qStage">Stage</label><select id="qStage" onchange="loadLeads()"><option value="">All</option></select>
+    <label><input type="checkbox" id="qHide" onchange="loadLeads()"> hide called</label>
+    <span class="sum" id="qSum"></span>
+  </div>
+  <div class="tablewrap"><table><thead><tr>
+    <th class="ck">done</th><th class="l">Lead</th><th class="l">Stage</th><th>Tier</th><th>Calls</th>
+    <th>Days in stage</th><th>Last call</th><th>Follow up</th><th>Score</th><th>₹ value</th>
+  </tr></thead><tbody id="qBody"></tbody></table></div>
+</div>
+
+<div id="pane-a" hidden>
+  <p class="note">Every lead below sits with an archived account, an unowned record, or an active owner who is
+    not on the September roster for this creator. Filter, select, choose who should get them, then assign.</p>
+  <div class="ctl">
+    <label for="aCreator">Creator</label><select id="aCreator" onchange="setCreator(this.value)"></select>
+    <label for="aTier">Tier</label>
+    <select id="aTier" onchange="loadLeads()"><option value="">All</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
+    <label for="aStage">Stage</label><select id="aStage" onchange="loadLeads()"><option value="">All</option></select>
+    <label for="aOwner">Currently with</label><select id="aOwner" onchange="loadLeads()"><option value="">All</option></select>
+    <label for="target">Intended owner</label><select id="target"></select>
+    <label for="aState">Owner state</label>
+    <select id="aState" onchange="loadLeads()"><option value="">All</option><option value="unowned">Unowned</option><option value="archived">Archived</option><option value="active">Active, off roster</option></select>
+    <button class="btn" onclick="selAll(true)">Select all shown</button>
+    <button class="btn" onclick="selAll(false)">Clear</button>
+    <span class="sum" id="aSum"></span>
+  </div>
+  <div class="tablewrap"><table><thead><tr>
+    <th class="ck"><input type="checkbox" onclick="selAll(this.checked)"></th>
+    <th class="l">Lead</th><th class="l">Stage</th><th>Tier</th><th>Calls</th><th>Days</th>
+    <th>Follow up</th><th class="l">Currently with</th><th class="l">State</th><th>₹ value</th>
+  </tr></thead><tbody id="aBody"></tbody></table></div>
+
+  <div class="bar">
+    <span class="cnt" id="selN">0 selected</span>
+    <span class="sum" id="selV"></span>
+    <button class="btn primary" onclick="copyEmails(';')">Copy emails, semicolon separated</button>
+    <button class="btn" onclick="copyEmails('\n')">One per line</button>
+    <button class="btn" onclick="copyCsv()">Copy as CSV</button>
+    <span class="sum" id="msg"></span>
   </div>
 
-  <div class="cards" id="cards"></div>
+  <div id="outWrap" hidden style="margin:18px 0">
+    <div class="ctl" style="margin:0 0 8px">
+      <span class="sum" style="color:var(--ink)">If nothing landed on your clipboard, click in the box, select all, and copy.</span>
+      <button class="btn" onclick="reselect()">Select all text</button>
+      <button class="btn" onclick="document.getElementById('outWrap').hidden=true">Hide</button>
+    </div>
+    <textarea id="outBox" readonly style="width:100%;height:170px;font-family:'JetBrains Mono',monospace;
+      font-size:11.5px;padding:12px;border:1px solid var(--line2);background:var(--surface);
+      color:var(--ink);border-radius:3px"></textarea>
+  </div>
 
-  <div class="tw"><table><thead><tr>
-    <th style="width:32px"><input type="checkbox" onclick="selAll(this.checked)"></th>
-    <th>Lead</th><th>Stage</th><th>Tier</th><th>Calls in stage</th><th>Calls total</th>
-    <th>Connected</th><th>Stage moves</th><th>Days in stage</th><th>Owner moves</th>
-    <th>With owner</th><th>Last call</th><th>Follow up</th><th>Owner</th><th>₹ value</th>
-  </tr></thead><tbody id="tb"></tbody></table></div>
-</div>
-
-<div class="bar">
-  <span class="n" id="selN">0 selected</span>
-  <label for="target">Assign to</label><select id="target"></select>
-  <button class="primary" id="assignBtn" onclick="assign(false)">Assign in HubSpot</button>
-  <button onclick="assign(true)">Dry run</button>
-  <span class="msg" id="msg"></span>
-</div>
+  <div class="call">
+    <span class="k">How to apply this in HubSpot</span>
+    <p>Select the leads, copy the emails, then in HubSpot open Contacts, add a filter on <strong>Email</strong>,
+      choose <span class="mono">is any of</span>, paste, select all in the resulting view, and use Assign.
+      Record ID does not offer <span class="mono">is any of</span>, which is why this copies emails.</p>
+    <p>Semicolon separated is the default because that is what the filter box accepts most reliably. Use
+      <strong>One per line</strong> if your version of the box prefers line breaks, and <strong>Copy as CSV</strong>
+      if you would rather move them through an Import that updates existing contacts matched on email.</p>
+    <p><strong>This desk never writes to HubSpot.</strong> It has no write endpoint and its token needs no write
+      scope. The owner changes only when you make it change, in HubSpot, where there is an audit trail and an undo.</p>
+  </div>
 
 <div id="drawer"></div>
 
+<footer>
+  <p>Lead Desk. Reads HubSpot every ten minutes, call records and property history every hour.
+    Value is the stage's chance of paying this month, discounted by how many calls the lead has already
+    taken in that stage, times the creator's average first payment. Use it to rank, not to forecast.</p>
+</footer>
+
+</div>
+
 <script>
-let META = {}, AGENTS = [], ROWS = [], sel = new Set(), curOwner = null;
+let META = {}, AGENTS = [], ROSTER = new Set(), ROWS = [], sel = new Set(), done = new Set(), curOwner = null, tab = 'q';
 const $ = id => document.getElementById(id);
 const fmt = n => (n ?? 0).toLocaleString('en-IN');
+const lakh = n => '₹' + (n / 1e5).toFixed(2) + 'L';
 const today = new Date().toISOString().slice(0, 10);
 
+try { const d = localStorage.getItem('desk_done'); if (d) done = new Set(JSON.parse(d)); } catch (e) {}
+function saveDone(){ try { localStorage.setItem('desk_done', JSON.stringify([...done])); } catch (e) {} }
+
 async function boot(){
-  META = await (await fetch('/api/meta')).json();
-  $('fCreator').innerHTML = '<option value="">All creators</option>' +
-    META.creators.map(c => `<option>${c}</option>`).join('');
-  const s = META.sync;
-  $('sync').textContent = `${fmt(META.leads)} leads · leads ${ago(s.leads.at)} · history ${ago(s.history.at)} · calls ${ago(s.calls.at)}`
-    + (META.writable ? ' · write enabled' : ' · READ ONLY');
-  $('assignBtn').disabled = !META.writable;
-  if (!META.writable) $('assignBtn').title = 'Set ALLOW_WRITE=1 and give the token crm.objects.contacts.write';
+  try { META = await (await fetch('/api/meta')).json(); }
+  catch (e) { $('mastmeta').innerHTML = '<span class="neg">cannot reach the service</span>'; return; }
+  const s = META.sync || {};
+  $('mastmeta').innerHTML =
+    `<span>${fmt(META.leads)} leads</span><span>leads ${ago(s.leads && s.leads.at)}</span>` +
+    `<span>history ${ago(s.history && s.history.at)}</span><span>calls ${ago(s.calls && s.calls.at)}</span>` +
+    `<span class="pos">read only</span>`;
+  const err = Object.entries(s).filter(([, v]) => v && v.err).map(([k, v]) => `${k}: ${v.err}`);
+  if (err.length) $('mastmeta').innerHTML += `<span class="neg">${err[0]}</span>`;
+  const opts = '<option value="">All creators</option>' + (META.creators || []).map(c => `<option>${c}</option>`).join('');
+  $('fCreator').innerHTML = opts; $('aCreator').innerHTML = opts;
   await loadAgents();
 }
 function ago(t){
@@ -134,115 +242,215 @@ function ago(t){
   const m = Math.round((Date.now() - new Date(t)) / 60000);
   return m < 1 ? 'just now' : m < 60 ? m + 'm ago' : Math.round(m / 60) + 'h ago';
 }
+function creator(){ return $('fCreator').value; }
+function setCreator(v){
+  $('fCreator').value = v; $('aCreator').value = v;   // the two dropdowns are one filter
+  curOwner = null;                                     // an agent chip from another creator is meaningless
+  loadAgents();
+}
+
 async function loadAgents(){
-  const c = $('fCreator').value;
+  const c = creator();
   AGENTS = await (await fetch('/api/agents' + (c ? '?creator=' + encodeURIComponent(c) : ''))).json();
+  ROSTER = new Set(AGENTS.filter(a => a.ownerId && a.active).map(a => a.ownerId));
   $('target').innerHTML = AGENTS.filter(a => a.ownerId && a.active)
-    .map(a => `<option value="${a.ownerId}">${a.name}</option>`).join('');
-  $('cards').innerHTML = AGENTS.map(a => {
-    const badge = a.ownerId ? (a.active ? '<span class="badge b-on">active</span>' : '<span class="badge b-off">archived</span>')
-                            : '<span class="badge b-un">unowned</span>';
-    return `<div class="card" aria-pressed="${curOwner === (a.ownerId || 'unowned')}"
-      onclick="pickOwner('${a.ownerId || 'unowned'}')">
-      <div class="nm">${a.name}</div><div class="st">${badge} ${fmt(a.total)} leads</div>
-      <div class="vv">P1 ${a.p1} · late ${a.late} · overdue ${a.overdue} · uncalled ${a.uncalled}</div>
-      <div class="vv">₹${(a.value / 1e5).toFixed(2)}L</div></div>`;
-  }).join('');
+    .map(a => `<option value="${a.ownerId}">${a.name}</option>`).join('')
+    || '<option value="">no active owners for this creator</option>';
+  $('aOwner').innerHTML = '<option value="">All</option>' +
+    AGENTS.filter(a => !ROSTER.has(a.ownerId)).map(a =>
+      `<option value="${a.ownerId || 'unowned'}">${a.name}</option>`).join('');
   await loadLeads();
 }
-function pickOwner(o){ curOwner = curOwner === o ? null : o; loadAgents(); }
-function clearOwner(){ curOwner = null; loadAgents(); }
+function pick(o){ curOwner = curOwner === o ? null : o; loadLeads(); }
+
+// One fetch drives both the chips and the table, so the chip counts always reflect
+// whatever creator, tier and stage are set above them.
 async function loadLeads(){
   const q = new URLSearchParams();
-  if ($('fCreator').value) q.set('creator', $('fCreator').value);
-  if (curOwner) q.set('owner', curOwner);
-  if ($('fGroup').value) q.set('group', $('fGroup').value);
-  if ($('fTier').value) q.set('tier', $('fTier').value);
-  if ($('fStage').value) q.set('stage', $('fStage').value);
+  const c = creator(); if (c) q.set('creator', c);
+  q.set('group', 'workable');
+  const tier = tab === 'q' ? $('qTier').value : $('aTier').value;
+  const stage = tab === 'q' ? $('qStage').value : $('aStage').value;
+  if (tier) q.set('tier', tier);
+  if (stage) q.set('stage', stage);
   const r = await (await fetch('/api/leads?' + q)).json();
-  ROWS = r.rows;
-  const stages = [...new Set(ROWS.map(x => x.stage).filter(Boolean))].sort();
-  const cur = $('fStage').value;
-  $('fStage').innerHTML = '<option value="">All</option>' + stages.map(s => `<option ${s === cur ? 'selected' : ''}>${s}</option>`).join('');
-  $('count').textContent = `${fmt(r.total)} match, showing ${fmt(ROWS.length)}, worth ₹${(ROWS.reduce((a, x) => a + x.value, 0) / 1e5).toFixed(2)}L`;
+  fillStages(r.rows);
+
+  const mine = r.rows.filter(l => ROSTER.has(l.ownerId));
+  const theirs = r.rows.filter(l => !ROSTER.has(l.ownerId));
+  drawChips(mine);
+
+  let rows;
+  if (tab === 'q'){
+    rows = curOwner ? mine.filter(l => l.ownerId === curOwner) : mine;
+    if ($('qHide').checked) rows = rows.filter(l => !done.has(l.id));
+  } else {
+    rows = theirs;
+    const o = $('aOwner').value;
+    if (o) rows = rows.filter(l => (l.ownerId || 'unowned') === o);
+    const st = $('aState').value;
+    if (st === 'unowned') rows = rows.filter(l => l.ownerActive === 'unowned');
+    else if (st === 'archived') rows = rows.filter(l => l.ownerActive === false);
+    else if (st === 'active') rows = rows.filter(l => l.ownerActive === true);
+  }
+  ROWS = rows;
+  const label = `${fmt(rows.length)} leads · ${lakh(rows.reduce((a, x) => a + x.value, 0))}`;
+  if (tab === 'q') $('qSum').textContent = label + (curOwner ? '' : ` · ${ROSTER.size} agents`);
+  else $('aSum').textContent = label + ` · ${fmt(theirs.length)} need an owner`;
   render();
 }
+function drawChips(mine){
+  const by = new Map();
+  for (const l of mine){
+    if (!by.has(l.ownerId)) by.set(l.ownerId, { name: l.ownerName, n: 0, p1: 0, v: 0 });
+    const a = by.get(l.ownerId);
+    a.n++; a.v += l.value; if (l.tier === 'P1') a.p1++;
+  }
+  // agents on the roster with nothing matching the filters still show, greyed, so a zero is visible
+  for (const id of ROSTER) if (!by.has(id)){
+    const a = AGENTS.find(x => x.ownerId === id);
+    if (a) by.set(id, { name: a.name, n: 0, p1: 0, v: 0 });
+  }
+  const list = [...by.entries()].sort((a, b) => b[1].v - a[1].v);
+  $('chips').innerHTML = list.length ? list.map(([id, a]) =>
+    `<button class="chip" aria-pressed="${curOwner === id}" onclick="pick('${id}')" ${a.n ? '' : 'style="opacity:.45"'}>
+      <b>${a.name}</b>${fmt(a.n)} leads · ${a.p1} P1 · ${lakh(a.v)}</button>`).join('')
+    : '<span class="sum">no agents hold leads matching these filters</span>';
+}
+
+const stageName = s => ({
+  rcb_requested_callback: 'Callback req.', discovery: 'Discovery', program_pitched: 'Programme pitched',
+  pricing_pitched: 'Pricing pitched', counselled: 'Counselled', 'Follow up': 'Follow up',
+  FU_DNP: 'FU-DNP', FU_RCB: 'FU-RCB', payment_prospect: 'Payment prospect', IFC: 'Interested in future'
+}[s] || s || 'Fresh');
+
 function render(){
-  $('tb').innerHTML = ROWS.length ? ROWS.map(l => {
-    const p = l.progress || {}, c = p.calls || {};
-    const od = l.followUpAt && l.followUpAt < today;
-    const ownBadge = l.ownerActive === true ? '' : l.ownerActive === 'unowned'
-      ? ' <span class="badge b-un">unowned</span>' : ' <span class="badge b-off">archived</span>';
-    return `<tr>
-      <td><input type="checkbox" ${sel.has(l.id) ? 'checked' : ''} onchange="mark('${l.id}',this.checked)"></td>
-      <td><a href="${l.url}" target="_blank" rel="noopener">${l.name}</a>
-          <a href="#" onclick="openLead('${l.id}');return false" style="margin-left:8px;color:var(--accent)">detail</a></td>
-      <td>${l.stage || 'fresh'}</td>
-      <td><span class="tg ${l.tier}">${l.tier}</span></td>
-      <td>${l.callsInStage}</td>
-      <td>${c.total ?? '<span class="dim">·</span>'}</td>
-      <td>${c.connected ?? '<span class="dim">·</span>'}</td>
-      <td>${p.stageChanges ?? '<span class="dim">·</span>'}</td>
-      <td>${l.daysInStage ?? ''}</td>
-      <td class="${p.ownerChanges > 1 ? 'warn' : ''}">${p.ownerChanges ?? '<span class="dim">·</span>'}</td>
-      <td>${p.daysWithCurrentOwner != null ? p.daysWithCurrentOwner + 'd' : '<span class="dim">·</span>'}</td>
-      <td class="dim">${l.lastCallAt || 'never'}</td>
-      <td class="${od ? 'neg' : 'dim'}">${l.followUpAt || 'none'}</td>
-      <td>${l.ownerName}${ownBadge}</td>
-      <td>${fmt(l.value)}</td></tr>`;
-  }).join('') : '<tr><td colspan="15" class="empty">Nothing matches these filters.</td></tr>';
+  if (tab === 'q'){
+    $('qBody').innerHTML = ROWS.length ? ROWS.map(l => {
+      const od = l.followUpAt && l.followUpAt < today;
+      return `<tr class="${done.has(l.id) ? 'done' : ''}">
+        <td class="ck"><input type="checkbox" ${done.has(l.id) ? 'checked' : ''} onchange="tick('${l.id}',this.checked)"></td>
+        <td class="l name"><a href="${l.url}" target="_blank" rel="noopener">${l.name}</a>
+          <a href="#" onclick="openLead('${l.id}');return false" style="margin-left:9px;color:var(--accent);font-size:12px">detail</a></td>
+        <td class="l name">${stageName(l.stage)}</td>
+        <td><span class="tg ${l.tier}">${l.tier}</span></td>
+        <td>${l.callsInStage}</td><td>${l.daysInStage ?? ''}</td>
+        <td class="dim">${l.lastCallAt || 'never'}</td>
+        <td class="${od ? 'neg' : 'dim'}">${l.followUpAt || 'none'}</td>
+        <td>${l.score || ''}</td><td>${fmt(l.value)}</td></tr>`;
+    }).join('') : '<tr><td colspan="10" class="empty">Pick an agent above, or clear the filters.</td></tr>';
+  } else {
+    $('aBody').innerHTML = ROWS.length ? ROWS.map(l => {
+      const od = l.followUpAt && l.followUpAt < today;
+      const state = l.ownerActive === 'unowned' ? '<span class="dim">unowned</span>'
+        : l.ownerActive === false ? '<span class="neg">archived</span>' : '<span class="dim">off roster</span>';
+      return `<tr>
+        <td class="ck"><input type="checkbox" ${sel.has(l.id) ? 'checked' : ''} onchange="mark('${l.id}',this.checked)"></td>
+        <td class="l name"><a href="${l.url}" target="_blank" rel="noopener">${l.name}</a>
+          <a href="#" onclick="openLead('${l.id}');return false" style="margin-left:9px;color:var(--accent);font-size:12px">detail</a></td>
+        <td class="l name">${stageName(l.stage)}</td>
+        <td><span class="tg ${l.tier}">${l.tier}</span></td>
+        <td>${l.callsInStage}</td><td>${l.daysInStage ?? ''}</td>
+        <td class="${od ? 'neg' : 'dim'}">${l.followUpAt || 'none'}</td>
+        <td class="l name">${l.ownerName}</td><td class="l">${state}</td>
+        <td>${fmt(l.value)}</td></tr>`;
+    }).join('') : '<tr><td colspan="10" class="empty">Nothing matches these filters.</td></tr>';
+  }
   updBar();
 }
+function tick(id, v){ v ? done.add(id) : done.delete(id); saveDone(); loadLeads(); }
 function mark(id, v){ v ? sel.add(id) : sel.delete(id); updBar(); }
 function selAll(v){ ROWS.forEach(l => v ? sel.add(l.id) : sel.delete(l.id)); render(); }
 function updBar(){
   const rows = ROWS.filter(l => sel.has(l.id));
-  $('selN').textContent = `${fmt(sel.size)} selected` + (sel.size ? ` · ₹${(rows.reduce((a, x) => a + x.value, 0) / 1e5).toFixed(2)}L` : '');
+  $('selN').textContent = `${fmt(sel.size)} selected`;
+  $('selV').textContent = sel.size ? lakh(rows.reduce((a, x) => a + x.value, 0)) + ' of value' : '';
 }
-async function assign(dry){
-  if (!sel.size) return say('Select some leads first', true);
-  const t = $('target');
-  const name = t.options[t.selectedIndex] ? t.options[t.selectedIndex].text : '';
-  if (!dry && !confirm(`Move ${sel.size} leads to ${name} in HubSpot? This changes the owner on every one of them.`)) return;
-  say('working');
-  const r = await (await fetch('/api/assign', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: [...sel], ownerId: t.value, dryRun: dry })
-  })).json();
-  if (r.error) return say(r.error, true);
-  if (!r.applied) return say(`Dry run: would move ${r.wouldUpdate} leads to ${r.ownerName}. ${r.reason}`, true);
-  say(`Moved ${r.updated} leads to ${r.ownerName}` + (r.failures && r.failures.length ? `, ${r.failures.length} batches failed` : ''));
-  sel.clear();
-  await loadAgents();
+function showTab(t){
+  tab = t;
+  $('pane-q').hidden = t !== 'q'; $('pane-a').hidden = t !== 'a';
+  $('t-q').setAttribute('aria-selected', t === 'q'); $('t-a').setAttribute('aria-selected', t === 'a');
+  $('aCreator').value = $('fCreator').value;
+  loadLeads();
 }
-function say(t, bad){ const m = $('msg'); m.textContent = t; m.style.color = bad ? 'var(--neg)' : 'var(--pos)'; }
+function flash(t, bad){
+  const m = $('msg');
+  m.textContent = t;
+  m.style.color = bad ? 'var(--neg)' : 'var(--pos)';
+  clearTimeout(window._ft); window._ft = setTimeout(() => { m.textContent = ''; }, 6000);
+}
+function legacyCopy(text){
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;opacity:0;';
+  document.body.appendChild(ta);
+  let ok = false;
+  try { ta.focus({ preventScroll: true }); ta.select(); ta.setSelectionRange(0, text.length); ok = document.execCommand('copy'); }
+  catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  return ok;
+}
+function reselect(){
+  const b = $('outBox'); b.focus(); b.select();
+  try { b.setSelectionRange(0, b.value.length); } catch (e) {}
+}
+function put(text, msg){
+  $('outBox').value = text;
+  $('outWrap').hidden = false;
+  const fallback = () => {
+    if (legacyCopy(text)) flash(msg);
+    else { reselect(); flash('Your browser blocked the clipboard. The text is selected below, press Ctrl C or Cmd C.', true); }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(text).then(() => flash(msg)).catch(fallback);
+  else fallback();
+}
+function selectedRows(){ return ROWS.filter(l => sel.has(l.id)); }
+function copyEmails(sep){
+  const rows = selectedRows();
+  if (!rows.length) return flash('Select some leads first', true);
+  const withEmail = rows.filter(l => l.email);
+  const missing = rows.length - withEmail.length;
+  put(withEmail.map(l => l.email).join(sep),
+    `${withEmail.length} emails copied` + (missing ? `, ${missing} had no email` : ''));
+}
+function copyCsv(){
+  const rows = selectedRows();
+  if (!rows.length) return flash('Select some leads first', true);
+  const name = $('target').options[$('target').selectedIndex];
+  put('Email,Contact owner,Record ID,Lead,Stage,Tier\n' +
+    rows.map(l => `${l.email},${name ? name.text : ''},${l.id},${(l.name || '').replace(/,/g, ' ')},${l.stage},${l.tier}`).join('\n'),
+    `${rows.length} rows copied as CSV`);
+}
+
 async function openLead(id){
   const d = $('drawer');
   d.innerHTML = '<div class="drawer"><p class="dim">loading</p></div>';
   const l = await (await fetch('/api/lead/' + id)).json();
   const p = l.progress || {}, c = p.calls || {};
   d.innerHTML = `<div class="drawer">
-    <button onclick="document.getElementById('drawer').innerHTML=''" style="float:right">close</button>
+    <button class="btn" onclick="document.getElementById('drawer').innerHTML=''" style="float:right">close</button>
     <h2>${l.name}</h2>
-    <p class="sub">${l.creator} · ${l.stage || 'fresh'} · <span class="tg ${l.tier}">${l.tier}</span> ·
-      <a href="${l.url}" target="_blank" rel="noopener">open in HubSpot</a></p>
+    <p class="sub">${l.creator} · ${stageName(l.stage)} · <span class="tg ${l.tier}">${l.tier}</span> ·
+      <a href="${l.url}" target="_blank" rel="noopener" style="color:var(--accent)">open in HubSpot</a></p>
+    <h3>Progress</h3>
     <dl class="kv">
-      <dt>Owner</dt><dd>${l.ownerName}${l.ownerActive === false ? ' (archived)' : ''}</dd>
-      <dt>Assigned on</dt><dd>${p.assignedToCurrentOwnerAt || 'unknown'} ${p.daysWithCurrentOwner != null ? `(${p.daysWithCurrentOwner} days ago)` : ''}</dd>
+      <dt>Owner</dt><dd>${l.ownerName}${l.ownerActive === false ? ' <span class="badge b-off">archived</span>' : ''}</dd>
+      <dt>Assigned on</dt><dd>${p.assignedToCurrentOwnerAt || 'unknown'}${p.daysWithCurrentOwner != null ? ` · ${p.daysWithCurrentOwner} days ago` : ''}</dd>
       <dt>Owner moves</dt><dd>${p.ownerChanges ?? 'unknown'}</dd>
-      <dt>Stage moves</dt><dd>${p.stageChanges ?? 'unknown'}, in this stage ${l.daysInStage ?? '?'} days</dd>
+      <dt>Stage moves</dt><dd>${p.stageChanges ?? 'unknown'} · ${l.daysInStage ?? '?'} days in this stage</dd>
       <dt>First counselled</dt><dd>${p.firstCounselledAt || 'never'}</dd>
-      <dt>Calls</dt><dd>${c.total ?? 0} total, ${c.connected ?? 0} connected, ${l.callsInStage} in this stage, ${l.callsByOwner} by the current owner</dd>
-      <dt>Last conversation</dt><dd>${c.lastAt || 'never'} ${c.lastDisposition ? '· ' + c.lastDisposition : ''}</dd>
+      <dt>Calls</dt><dd>${c.total ?? 0} total, ${c.connected ?? 0} connected · ${l.callsInStage} in this stage, ${l.callsByOwner} by the current owner</dd>
+      <dt>Last talk</dt><dd>${c.lastAt || 'never'}${c.lastDisposition ? ' · ' + c.lastDisposition : ''}</dd>
       <dt>Follow up</dt><dd class="${l.followUpAt && l.followUpAt < today ? 'neg' : ''}">${l.followUpAt || 'none set'}</dd>
       <dt>Segment</dt><dd>${l.student}${l.intl ? ' · international' : ''}${l.score ? ' · score ' + l.score : ''} · ${l.source || 'no source'}</dd>
     </dl>
-    ${p.inheritedUntouched ? '<p class="msg neg">Worked by a previous owner and never called by the current one.</p>' : ''}
-    <h3>Stage history</h3><ul class="tl">${(l.stagePath || []).map(s => `<li><b>${s.stage}</b> <span class="dim">${s.at}</span></li>`).join('') || '<li class="dim">no history recorded</li>'}</ul>
+    ${p.inheritedUntouched ? '<div class="call warnbox"><span class="k">Inherited and untouched</span><p>Worked by a previous owner and never called by the current one.</p></div>' : ''}
+    <h3>Stage history</h3><ul class="tl">${(l.stagePath || []).map(s => `<li><b>${stageName(s.stage)}</b> <span class="dim">${s.at}</span></li>`).join('') || '<li class="dim">no history recorded</li>'}</ul>
     <h3>Owner history</h3><ul class="tl">${(l.ownerPath || []).map(o => `<li><b>${o.owner}</b>${o.active === false ? ' <span class="badge b-off">archived</span>' : ''} <span class="dim">${o.at}</span></li>`).join('') || '<li class="dim">never reassigned</li>'}</ul>
     <h3>Recent calls</h3><ul class="tl">${(l.recentCalls || []).map(x => `<li>${x.at} · ${x.disposition || 'no disposition'} · ${x.seconds}s${x.by ? ' · ' + x.by : ''}</li>`).join('') || '<li class="dim">no call records in the last 120 days</li>'}</ul>
     ${l.reason ? `<h3>Reason recorded</h3><pre>${esc(l.reason)}</pre>` : ''}
-    <h3>Call transcript</h3><pre>${l.transcript ? esc(l.transcript) : '<span class="dim">no sales call transcript on this lead</span>'}</pre>
+    <h3>Call transcript</h3><pre>${l.transcript ? esc(l.transcript) : 'no sales call transcript on this lead'}</pre>
     ${l.aiTranscript ? `<h3>AI caller transcript</h3><pre>${esc(l.aiTranscript)}</pre>` : ''}
   </div>`;
 }
