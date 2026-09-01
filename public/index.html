@@ -202,6 +202,8 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
     <p><strong>This desk never writes to HubSpot.</strong> It has no write endpoint and its token needs no write
       scope. The owner changes only when you make it change, in HubSpot, where there is an audit trail and an undo.</p>
   </div>
+</div><!-- /pane-a. The drawer must sit outside both panes: hiding a pane is display:none,
+          which stops even a position:fixed child inside it from rendering at all. -->
 
 <div id="drawer"></div>
 
@@ -437,13 +439,15 @@ function copyCsv(){
     `${rows.length} rows copied as CSV`);
 }
 
+function closeLead(){ $('drawer').innerHTML = ''; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLead(); });
 async function openLead(id){
   const d = $('drawer');
   d.innerHTML = '<div class="drawer"><p class="dim">loading</p></div>';
   const l = await (await fetch('/api/lead/' + id)).json();
   const p = l.progress || {};
   d.innerHTML = `<div class="drawer">
-    <button class="btn" onclick="document.getElementById('drawer').innerHTML=''" style="float:right">close</button>
+    <button class="btn" onclick="closeLead()" style="float:right">close, or press Esc</button>
     <h2>${l.name}</h2>
     <p class="sub">${l.creator} · ${stageName(l.stage)} · <span class="tg ${l.tier}">${l.tier}</span> ·
       <a href="${l.url}" target="_blank" rel="noopener" style="color:var(--accent)">open in HubSpot</a></p>
