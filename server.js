@@ -10,10 +10,15 @@
  *   - serves a per agent calling queue ordered by expected value
  *   - hands you the selected leads' emails to paste into HubSpot, where reassignment happens
  *
- * It is read only. There is no write endpoint and it needs no write scope.
+ * It never writes to HubSpot. It holds no write scope and has no endpoint that could
+ * change a contact. The two things it does own are local to the desk: a list of prospects
+ * added here by hand, and the notes typed against a lead. Those live in a JSON file on the
+ * attached volume, never in the CRM.
  */
 
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static('public'));
@@ -72,21 +77,26 @@ function tierOf(v) { return v >= 2000 ? 'P1' : v >= 1000 ? 'P2' : v >= 400 ? 'P3
 
 // ---------------------------------------------------------------- scope rules
 // Per creator qualification. Keep this in one place so the desk and the plan agree.
+// why() returns the reason a lead fails, or an empty string when it qualifies, so that a
+// lead added by hand can be admitted while still showing which rule it went around.
 const SCOPE = {
   ayush_singh13: {
     // professionals anywhere, students only once counselled, no PK or BD numbers
-    test(l) {
+    why(l) {
       const ph = l.phone || '';
-      if (ph.startsWith('+92') || ph.startsWith('+880')) return false;
-      if (l.student === 'student') return LATE.includes(l.stage);
-      return true;
+      if (ph.startsWith('+92')) return 'Pakistan number';
+      if (ph.startsWith('+880')) return 'Bangladesh number';
+      if (l.student === 'student' && !LATE.includes(l.stage)) {
+        return 'student, and not yet at pricing pitched, counselled or payment prospect';
+      }
+      return '';
     },
     label: 'professionals and unknowns everywhere, students only at pricing pitched, counselled or payment prospect, no Pakistan or Bangladesh numbers'
   }
 };
-function inScope(l) {
+function scopeFail(l) {
   const rule = SCOPE[l.creator];
-  return rule ? rule.test(l) : true;
+  return rule ? rule.why(l) : '';
 }
 
 // ---------------------------------------------------------------- hubspot client
@@ -126,6 +136,54 @@ const S = {
   },
   readOnly: true
 };
+
+// ---------------------------------------------------------------- local store
+// The desk's own two pieces of state: prospects pinned here by hand, and notes typed
+// against a lead. Neither goes near HubSpot. Both belong on a Railway volume, because
+// everything else in this process is a cache that rebuilds on boot and these do not.
+//
+// Whether a volume is actually mounted cannot be detected directly, so the file counts
+// boots. A file that comes back carrying a previous boot outlived a restart, which is
+// the only honest proof that the disk is persistent. Until that happens the UI says so.
+const DATA_DIR = process.env.DATA_DIR || '/data';
+const DB_FILE = path.join(DATA_DIR, 'desk.json');
+const DB = { boots: 0, pinned: {}, comments: {} };
+const store = { dir: DATA_DIR, writable: false, err: '', survivedRestart: false, boots: 0 };
+
+function saveDB() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const tmp = DB_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(DB, null, 2));
+    fs.renameSync(tmp, DB_FILE);        // atomic: a crash mid write cannot truncate the real file
+    store.writable = true; store.err = '';
+    return true;
+  } catch (e) {
+    store.writable = false; store.err = e.message;
+    console.error('store write failed:', e.message);
+    return false;
+  }
+}
+function loadDB() {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const j = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+      DB.pinned = j.pinned || {};
+      DB.comments = j.comments || {};
+      DB.boots = Number(j.boots) || 0;
+      store.survivedRestart = DB.boots > 0;
+    }
+  } catch (e) {
+    console.error('store read failed, starting empty:', e.message);
+    store.err = e.message;
+  }
+  DB.boots++;
+  store.boots = DB.boots;
+  saveDB();
+  console.log(`store ${DB_FILE}: writable ${store.writable}, survived a restart ${store.survivedRestart}, ` +
+    `${Object.keys(DB.pinned).length} pinned, ${Object.keys(DB.comments).length} leads with notes`);
+}
+const notesFor = id => DB.comments[id] || [];
 
 function ymd(v) {
   if (!v) return '';
@@ -207,44 +265,80 @@ async function syncLeads() {
         group.filter
       ];
       total += await searchPartition(filters, EPOCH, tomorrow, r => {
-        const p = r.properties || {};
-        const id = r.id;
-        const prev = S.leads.get(id) || {};
-        const lead = {
-          id,
-          name: [p.firstname, p.lastname].filter(Boolean).join(' ').trim() || (p.email || '').split('@')[0] || 'no name',
-          email: (p.email || '').toLowerCase(),
-          phone: p.phone || '',
-          creator: p.topmate_username || '',
-          stage: p.contact_engagement_stage || '',
-          ownerId: p.hubspot_owner_id || '',
-          callsInStage: Number(p.callscurrent_stage) || 0,
-          callsByOwner: Number(p.call_in_current_stage_by_current_owner) || 0,
-          lastCallAt: p.last_call_date_and_time || '',
-          followUpAt: p.follow_up_date_and_time || '',
-          stageChangedAt: p.engagement_stage_last_changed_at || '',
-          createdAt: p.createdate || '',
-          score: p.conversion_probability_score ? Number(p.conversion_probability_score) : null,
-          student: studentOf(p),
-          counsellingDone: p.counselling_done === 'true',
-          counsellingDate: p.counselling_date || '',
-          source: p.actual_source || '',
-          intl: p.international_number === 'true',
-          touches: Number(p.num_contacted_notes) || 0,
-          progress: prev.progress || null      // preserved across lead syncs
-        };
-        lead.daysInStage = daysSince(lead.stageChangedAt);
-        lead.value = scoreOf(lead);
-        lead.tier = tierOf(lead.value);
-        lead.inScope = inScope(lead);
-        S.leads.set(id, lead);
-        seen.add(id);
+        S.leads.set(r.id, buildLead(r));
+        seen.add(r.id);
       });
     }
   }
-  for (const id of [...S.leads.keys()]) if (!seen.has(id)) S.leads.delete(id);
+  // A lead pinned by hand is not in any of these searches by definition, so the sweep has
+  // to spare it. Everything else that stopped matching is dropped.
+  for (const id of [...S.leads.keys()]) {
+    if (seen.has(id) || DB.pinned[id]) continue;
+    S.leads.delete(id);
+  }
   S.meta.leads = { at: new Date().toISOString(), n: total, err: null };
   return total;
+}
+
+// One place that turns a HubSpot contact into a desk lead, so a hand added prospect is
+// scored, tiered and shaped exactly like one that arrived through the sync.
+function buildLead(r) {
+  const p = r.properties || {};
+  const prev = S.leads.get(r.id) || {};
+  const lead = {
+    id: r.id,
+    name: [p.firstname, p.lastname].filter(Boolean).join(' ').trim() || (p.email || '').split('@')[0] || 'no name',
+    email: (p.email || '').toLowerCase(),
+    phone: p.phone || '',
+    creator: p.topmate_username || '',
+    stage: p.contact_engagement_stage || '',
+    ownerId: p.hubspot_owner_id || '',
+    callsInStage: Number(p.callscurrent_stage) || 0,
+    callsByOwner: Number(p.call_in_current_stage_by_current_owner) || 0,
+    lastCallAt: p.last_call_date_and_time || '',
+    followUpAt: p.follow_up_date_and_time || '',
+    stageChangedAt: p.engagement_stage_last_changed_at || '',
+    createdAt: p.createdate || '',
+    score: p.conversion_probability_score ? Number(p.conversion_probability_score) : null,
+    student: studentOf(p),
+    counsellingDone: p.counselling_done === 'true',
+    counsellingDate: p.counselling_date || '',
+    source: p.actual_source || '',
+    intl: p.international_number === 'true',
+    touches: Number(p.num_contacted_notes) || 0,
+    progress: prev.progress || null      // preserved across lead syncs
+  };
+  lead.daysInStage = daysSince(lead.stageChangedAt);
+  lead.value = scoreOf(lead);
+  lead.tier = tierOf(lead.value);
+  lead.scopeFail = scopeFail(lead);
+  lead.manual = !!DB.pinned[r.id];
+  // A hand added lead is admitted even when it fails a rule. scopeFail still records which
+  // rule it went around, so the override is visible instead of silently changing the counts.
+  lead.inScope = !lead.scopeFail || lead.manual;
+  return lead;
+}
+
+// Pinned leads sit outside every sync filter, so they are refreshed by id on their own.
+async function syncPinned() {
+  const ids = Object.keys(DB.pinned);
+  if (!ids.length) return 0;
+  let n = 0;
+  for (const batch of chunk(ids, 50)) {
+    let page;
+    try {
+      page = await hs('/crm/v3/objects/contacts/batch/read', {
+        method: 'POST',
+        body: JSON.stringify({ properties: PROPS, inputs: batch.map(id => ({ id })) })
+      });
+    } catch (e) {
+      console.error('pinned refresh failed:', e.message);
+      continue;
+    }
+    for (const r of page.results || []) { S.leads.set(r.id, buildLead(r)); n++; }
+    await sleep(120);
+  }
+  return n;
 }
 
 // ---------------------------------------------------------------- sync: owners
@@ -277,6 +371,13 @@ async function syncHistory() {
   const ids = [...S.leads.values()]
     .filter(l => l.inScope && (WORKABLE.includes(l.stage) || l.stage === 'IFC'))
     .map(l => l.id);
+  const n = await syncHistoryFor(ids);
+  S.meta.history = { at: new Date().toISOString(), n, err: S.meta.history.err };
+  return n;
+}
+// Split out so a single lead added by hand can have its history filled straight away
+// rather than waiting for the hourly pass.
+async function syncHistoryFor(ids) {
   let n = 0;
   for (const batch of chunk(ids, 50)) {
     const body = {
@@ -329,7 +430,6 @@ async function syncHistory() {
     }
     await sleep(150);
   }
-  S.meta.history = { at: new Date().toISOString(), n, err: S.meta.history.err };
   return n;
 }
 
@@ -343,7 +443,14 @@ async function syncHistory() {
 function shape(l) {
   const o = S.owners.get(l.ownerId);
   const pr = l.progress || {};
+  const notes = notesFor(l.id);
+  const last = notes.length ? notes[notes.length - 1] : null;
   return {
+    manual: !!l.manual,
+    scopeFail: l.scopeFail || '',
+    addedAt: DB.pinned[l.id] ? ymd(DB.pinned[l.id].addedAt) : '',
+    notes: notes.length,
+    lastNote: last ? { at: ymd(last.at), by: last.by, agent: last.agent, text: last.text.slice(0, 200) } : null,
     id: l.id, name: l.name, email: l.email, creator: l.creator, stage: l.stage,
     tier: l.tier, value: l.value, inScope: l.inScope, student: l.student, score: l.score,
     callsInStage: l.callsInStage, callsByOwner: l.callsByOwner,
@@ -367,7 +474,8 @@ app.get('/api/meta', (req, res) => {
   res.json({
     creators: CREATORS, leads: S.leads.size, readOnly: true,
     scopeRules: Object.fromEntries(Object.entries(SCOPE).map(([k, v]) => [k, v.label])),
-    sync: S.meta, portal: PORTAL, ui: UI
+    sync: S.meta, portal: PORTAL, ui: UI,
+    store: { ...store, pinned: Object.keys(DB.pinned).length, noted: Object.keys(DB.comments).length }
   });
 });
 
@@ -404,9 +512,11 @@ app.get('/api/agents', (req, res) => {
 // dropdown and the summary must describe the WHOLE filtered set, not the first page
 // of it. So the aggregates are computed before the slice and returned alongside.
 app.get('/api/leads', (req, res) => {
-  const { creator, owner, stage, tier, scope, group, minValue, ownerState } = req.query;
+  const { creator, owner, stage, tier, scope, group, minValue, ownerState, manual, noted } = req.query;
   let out = [...S.leads.values()];
   if (scope !== 'all') out = out.filter(l => l.inScope);
+  if (manual === '1') out = out.filter(l => l.manual);
+  if (noted === '1') out = out.filter(l => notesFor(l.id).length);
   if (creator) out = out.filter(l => l.creator === creator);
   if (group === 'workable') out = out.filter(l => WORKABLE.includes(l.stage));
   if (group === 'late') out = out.filter(l => LATE.includes(l.stage));
@@ -464,6 +574,7 @@ app.get('/api/lead/:id', async (req, res) => {
   const lead = S.leads.get(req.params.id);
   if (!lead) return res.status(404).json({ error: 'not in the desk cache' });
   const out = shape(lead);
+  out.comments = notesFor(lead.id).map((c, i) => ({ ...c, at: c.at, idx: i }));
   const pr = lead.progress || {};
   out.stagePath = (pr.stagePath || []).map(v => ({ stage: v.stage, at: ymd(v.at) }));
   out.ownerPath = (pr.ownerPath || []).map(v => {
@@ -487,10 +598,85 @@ function guard(req, res) {
   return true;
 }
 
-// This desk is READ ONLY by design. It never writes to HubSpot.
-// Reassignment is done in HubSpot itself: copy the emails from the Assign tab, filter Contacts on
-// Email "is any of", select all, and use Assign. That keeps the destructive step where it has an
-// audit trail and an undo, and it means this service never needs a write scope on its token.
+// Nothing below writes to HubSpot. Reassignment is done in HubSpot itself: copy the emails
+// from the Assign tab, filter Contacts on Email "is any of", select all, and use Assign. That
+// keeps the destructive step where it has an audit trail and an undo, and it means this service
+// never needs a write scope on its token. The endpoints below only touch the desk's own file.
+
+// ---------------------------------------------------------------- manual prospects
+// Paste an email, get the same lead every sync would have produced. Useful when an agent
+// mentions a prospect the desk filtered out, or one belonging to a creator it does not sync.
+app.post('/api/manual', async (req, res) => {
+  if (!guard(req, res)) return;
+  const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return res.status(400).json({ error: 'that does not look like an email address' });
+  }
+  let hits;
+  try {
+    const r = await hs('/crm/v3/objects/contacts/search', {
+      method: 'POST',
+      body: JSON.stringify({
+        filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }],
+        properties: PROPS, limit: 5
+      })
+    });
+    hits = r.results || [];
+  } catch (e) {
+    return res.status(502).json({ error: 'HubSpot lookup failed: ' + e.message });
+  }
+  if (!hits.length) return res.status(404).json({ error: `HubSpot has no contact with the email ${email}` });
+
+  const r = hits[0];
+  DB.pinned[r.id] = { id: r.id, email, addedAt: new Date().toISOString() };
+  const lead = buildLead(r);              // reads DB.pinned, so it comes back already flagged manual
+  S.leads.set(r.id, lead);
+  const persisted = saveDB();
+  syncHistoryFor([r.id]).catch(e => console.error('history for pinned lead failed:', e.message));
+  res.json({ ok: true, persisted, duplicates: hits.length - 1, lead: shape(lead) });
+});
+
+app.delete('/api/manual/:id', (req, res) => {
+  if (!guard(req, res)) return;
+  const id = req.params.id;
+  if (!DB.pinned[id]) return res.status(404).json({ error: 'that lead was not added by hand' });
+  delete DB.pinned[id];
+  const lead = S.leads.get(id);
+  if (lead) {
+    lead.manual = false;
+    lead.inScope = !lead.scopeFail;       // it keeps its place only if it qualifies on its own
+  }
+  res.json({ ok: true, persisted: saveDB() });
+});
+
+// ---------------------------------------------------------------- notes
+// What was actually said, typed here after talking to the agent. Desk only: this never
+// reaches the contact record, so it cannot be seen from inside HubSpot.
+app.post('/api/comment/:id', (req, res) => {
+  if (!guard(req, res)) return;
+  const id = req.params.id;
+  if (!S.leads.has(id)) return res.status(404).json({ error: 'that lead is not in the desk' });
+  const text = String((req.body && req.body.text) || '').trim();
+  if (!text) return res.status(400).json({ error: 'the note is empty' });
+  const c = {
+    at: new Date().toISOString(),
+    by: String((req.body && req.body.by) || '').trim().slice(0, 60),
+    agent: String((req.body && req.body.agent) || '').trim().slice(0, 80),
+    text: text.slice(0, 4000)
+  };
+  (DB.comments[id] = DB.comments[id] || []).push(c);
+  res.json({ ok: true, persisted: saveDB(), comments: notesFor(id) });
+});
+
+app.delete('/api/comment/:id/:idx', (req, res) => {
+  if (!guard(req, res)) return;
+  const list = DB.comments[req.params.id];
+  const i = Number(req.params.idx);
+  if (!list || !list[i]) return res.status(404).json({ error: 'no such note' });
+  list.splice(i, 1);
+  if (!list.length) delete DB.comments[req.params.id];
+  res.json({ ok: true, persisted: saveDB(), comments: notesFor(req.params.id) });
+});
 
 app.post('/api/refresh', async (req, res) => {
   if (!guard(req, res)) return;
@@ -510,11 +696,13 @@ async function safe(name, fn) {
 async function runAll() {
   await safe('owners', syncOwners);
   await safe('leads', syncLeads);
+  await safe('pinned', syncPinned);      // after leads, so the sweep cannot drop them
   await safe('history', syncHistory);
 }
 const port = process.env.PORT || 3000;
+loadDB();
 app.listen(port, () => {
-  console.log(`lead desk listening on ${port}, ${CREATORS.length} creators, read only`);
+  console.log(`lead desk listening on ${port}, ${CREATORS.length} creators, no HubSpot writes`);
   runAll().catch(e => console.error('first sync failed', e));
   setInterval(() => safe('leads', syncLeads), (Number(process.env.SYNC_MINUTES) || 10) * MIN);
   setInterval(() => safe('history', syncHistory), (Number(process.env.HISTORY_MINUTES) || 60) * MIN);

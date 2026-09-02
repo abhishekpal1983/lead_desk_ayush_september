@@ -141,8 +141,21 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
     <select id="qTier" onchange="loadLeads()"><option value="">All</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
     <label for="qStage">Stage</label><select id="qStage" onchange="loadLeads()"><option value="">All</option></select>
     <label><input type="checkbox" id="qHide" onchange="loadLeads()"> hide called</label>
+    <label><input type="checkbox" id="qManual" onchange="loadLeads()"> added by hand</label>
+    <label><input type="checkbox" id="qNoted" onchange="loadLeads()"> has a note</label>
     <span class="sum" id="qSum"></span>
   </div>
+
+  <div class="ctl" style="border-top:1px dashed var(--line2);padding-top:12px">
+    <label for="addEmail">Add a prospect</label>
+    <input id="addEmail" type="email" placeholder="email address" autocomplete="off" spellcheck="false"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();addProspect()}"
+      style="font-family:'JetBrains Mono',monospace;font-size:12px;padding:6px 9px;min-width:260px;
+             border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:3px">
+    <button class="btn primary" onclick="addProspect()">Look it up and add</button>
+    <span class="sum" id="addMsg"></span>
+  </div>
+
   <div class="tablewrap"><table><thead><tr>
     <th class="ck">done</th><th class="l">Lead</th><th class="l">Stage</th><th>Tier</th><th>Calls</th>
     <th>Days in stage</th><th>Last call</th><th>Follow up</th><th>Score</th><th>₹ value</th>
@@ -224,15 +237,35 @@ const today = new Date().toISOString().slice(0, 10);
 
 try { const d = localStorage.getItem('desk_done'); if (d) done = new Set(JSON.parse(d)); } catch (e) {}
 function saveDone(){ try { localStorage.setItem('desk_done', JSON.stringify([...done])); } catch (e) {} }
+const remembered = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+const remember = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+
+// Every write goes through here so the desk key, if one is set on the service, rides along.
+async function post(url, body, method){
+  const key = remembered('desk_key');
+  const r = await fetch(url, {
+    method: method || 'POST',
+    headers: { 'Content-Type': 'application/json', ...(key ? { 'x-desk-key': key } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `${r.status} from the service`);
+  return j;
+}
 
 async function boot(){
   try { META = await (await fetch('/api/meta')).json(); }
   catch (e) { $('mastmeta').innerHTML = '<span class="neg">cannot reach the service</span>'; return; }
-  const s = META.sync || {};
+  const s = META.sync || {}, st = META.store || {};
+  // The notes and the hand added list are the only things here that cannot be rebuilt, so
+  // say plainly whether the disk holding them has actually proved itself across a restart.
+  const disk = !st.writable ? '<span class="neg">notes cannot be saved, no writable disk</span>'
+    : st.survivedRestart ? `<span class="pos">notes on disk</span>`
+    : `<span class="neg">disk unproven, attach a volume</span>`;
   $('mastmeta').innerHTML =
     `<span>${fmt(META.leads)} leads</span><span>leads ${ago(s.leads && s.leads.at)}</span>` +
     `<span>history ${ago(s.history && s.history.at)}</span>` +
-    `<span class="pos">read only</span>`;
+    `<span class="pos">no HubSpot writes</span>` + disk;
   const err = Object.entries(s).filter(([, v]) => v && v.err).map(([k, v]) => `${k}: ${v.err}`);
   if (err.length) $('mastmeta').innerHTML += `<span class="neg">${err[0]}</span>`;
   const opts = '<option value="">All creators</option>' + (META.creators || []).map(c => `<option>${c}</option>`).join('');
@@ -278,7 +311,12 @@ async function loadLeads(){
   if (tier) q.set('tier', tier);
   if (stage) q.set('stage', stage);
   if (tab === 'q'){
-    q.set('ownerState', 'active');                 // the queues are what the roster holds
+    const manual = $('qManual').checked, noted = $('qNoted').checked;
+    if (manual) q.set('manual', '1');
+    if (noted) q.set('noted', '1');
+    // A prospect added by hand often has no owner, or an archived one. Constraining these
+    // views to the roster would hide the very leads the filter was ticked to find.
+    if (!manual && !noted) q.set('ownerState', 'active');
     if (curOwner) q.set('owner', curOwner);
   } else {
     q.set('ownerState', $('aState').value || 'assignable');
@@ -334,6 +372,21 @@ function drawChips(list){
     : '<span class="sum">no agents hold leads matching these filters</span>';
 }
 
+// The lead cell carries three things beyond the name: the HubSpot link, a marker when the
+// lead was added by hand and which rule it went around, and the last thing anyone typed
+// about it, so the queue itself shows what was heard rather than hiding it in the drawer.
+function leadCell(l){
+  const flag = l.manual
+    ? `<span class="tg" title="${esc(l.scopeFail || 'added by hand')}"
+         style="background:var(--accent);color:#fff;margin-left:8px">BY HAND</span>` : '';
+  const n = l.lastNote
+    ? `<div class="dim" style="font-size:11px;margin-top:3px;max-width:46ch;white-space:normal">
+         ${esc(l.lastNote.text)}${l.lastNote.agent ? ' · ' + esc(l.lastNote.agent) : ''} · ${l.lastNote.at}
+         ${l.notes > 1 ? ` · ${l.notes} notes` : ''}</div>` : '';
+  return `<a href="${l.url}" target="_blank" rel="noopener">${esc(l.name)}</a>
+    <a href="#" onclick="openLead('${l.id}');return false" style="margin-left:9px;color:var(--accent);font-size:12px">detail</a>${flag}${n}`;
+}
+
 const stageName = s => ({
   rcb_requested_callback: 'Callback req.', discovery: 'Discovery', program_pitched: 'Programme pitched',
   pricing_pitched: 'Pricing pitched', counselled: 'Counselled', 'Follow up': 'Follow up',
@@ -346,8 +399,7 @@ function render(){
       const od = l.followUpAt && l.followUpAt < today;
       return `<tr class="${done.has(l.id) ? 'done' : ''}">
         <td class="ck"><input type="checkbox" ${done.has(l.id) ? 'checked' : ''} onchange="tick('${l.id}',this.checked)"></td>
-        <td class="l name"><a href="${l.url}" target="_blank" rel="noopener">${l.name}</a>
-          <a href="#" onclick="openLead('${l.id}');return false" style="margin-left:9px;color:var(--accent);font-size:12px">detail</a></td>
+        <td class="l name">${leadCell(l)}</td>
         <td class="l name">${stageName(l.stage)}</td>
         <td><span class="tg ${l.tier}">${l.tier}</span></td>
         <td>${l.callsInStage}</td><td>${l.daysInStage ?? ''}</td>
@@ -362,8 +414,7 @@ function render(){
         : l.ownerActive === false ? '<span class="neg">archived</span>' : '<span class="dim">off roster</span>';
       return `<tr>
         <td class="ck"><input type="checkbox" ${sel.has(l.id) ? 'checked' : ''} onchange="mark('${l.id}',this.checked)"></td>
-        <td class="l name"><a href="${l.url}" target="_blank" rel="noopener">${l.name}</a>
-          <a href="#" onclick="openLead('${l.id}');return false" style="margin-left:9px;color:var(--accent);font-size:12px">detail</a></td>
+        <td class="l name">${leadCell(l)}</td>
         <td class="l name">${stageName(l.stage)}</td>
         <td><span class="tg ${l.tier}">${l.tier}</span></td>
         <td>${l.callsInStage}</td><td>${l.daysInStage ?? ''}</td>
@@ -439,13 +490,76 @@ function copyCsv(){
     `${rows.length} rows copied as CSV`);
 }
 
+// ---------------------------------------------------------------- add a prospect by email
+// The service does the lookup and builds the lead exactly as the sync would, so what comes
+// back is scored and tiered like everything else rather than being a stub.
+async function addProspect(){
+  const box = $('addEmail'), email = box.value.trim();
+  if (!email) { $('addMsg').innerHTML = '<span class="neg">type an email address first</span>'; return; }
+  $('addMsg').textContent = 'looking it up in HubSpot';
+  try {
+    const r = await post('/api/manual', { email });
+    const l = r.lead;
+    box.value = '';
+    const why = l.scopeFail
+      ? ` It fails the qualification rule: ${esc(l.scopeFail)}. Added anyway and marked by hand.`
+      : '';
+    const dupes = r.duplicates ? ` HubSpot has ${r.duplicates} other contact${r.duplicates > 1 ? 's' : ''} on that email; the first was taken.` : '';
+    const warn = r.persisted ? '' : ' <span class="neg">It is not on disk: no writable volume.</span>';
+    $('addMsg').innerHTML = `<span class="pos">${esc(l.name)} added</span> · ${esc(l.creator || 'no creator')} ·
+      ${stageName(l.stage)} · ${l.tier} · ₹${fmt(l.value)}.${esc(why)}${esc(dupes)}${warn}`;
+    await loadAgents();
+    openLead(l.id);
+  } catch (e) {
+    $('addMsg').innerHTML = `<span class="neg">${esc(e.message)}</span>`;
+  }
+}
+async function unpin(id){
+  try { await post('/api/manual/' + id, undefined, 'DELETE'); closeLead(); await loadAgents(); }
+  catch (e) { flash(e.message, true); }
+}
+
+// ---------------------------------------------------------------- notes
+async function addNote(id){
+  const t = $('nText').value.trim();
+  if (!t) { $('nMsg').innerHTML = '<span class="neg">nothing typed</span>'; return; }
+  const by = $('nBy').value.trim(), agent = $('nAgent').value.trim();
+  remember('desk_me', by);
+  $('nMsg').textContent = 'saving';
+  try {
+    const r = await post('/api/comment/' + id, { text: t, by, agent });
+    $('nText').value = '';
+    $('nMsg').innerHTML = r.persisted ? '<span class="pos">saved</span>'
+      : '<span class="neg">held in memory only, no writable disk, it will not survive a redeploy</span>';
+    NOTES = r.comments; drawNotes(id);
+    loadLeads();                                  // the row picks up the new latest note
+  } catch (e) { $('nMsg').innerHTML = `<span class="neg">${esc(e.message)}</span>`; }
+}
+async function delNote(id, i){
+  try { const r = await post(`/api/comment/${id}/${i}`, undefined, 'DELETE'); NOTES = r.comments; drawNotes(id); loadLeads(); }
+  catch (e) { $('nMsg').innerHTML = `<span class="neg">${esc(e.message)}</span>`; }
+}
+let NOTES = [];
+function drawNotes(id){
+  $('nList').innerHTML = NOTES.length ? NOTES.map((c, i) => `
+    <li><b>${esc(c.text)}</b>
+      <span class="dim">${c.agent ? esc(c.agent) + ' · ' : ''}${c.by ? esc(c.by) + ' · ' : ''}${String(c.at).slice(0, 16).replace('T', ' ')}</span>
+      <a href="#" onclick="delNote('${id}',${i});return false" style="color:var(--accent);font-size:11px;margin-left:6px">remove</a></li>`)
+    .reverse().join('') : '<li class="dim">nothing recorded yet</li>';
+}
+
 function closeLead(){ $('drawer').innerHTML = ''; }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLead(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (document.activeElement && $('drawer').contains(document.activeElement)) return;  // do not lose a half typed note
+  closeLead();
+});
 async function openLead(id){
   const d = $('drawer');
   d.innerHTML = '<div class="drawer"><p class="dim">loading</p></div>';
   const l = await (await fetch('/api/lead/' + id)).json();
   const p = l.progress || {};
+  NOTES = l.comments || [];
   d.innerHTML = `<div class="drawer">
     <button class="btn" onclick="closeLead()" style="float:right">close, or press Esc</button>
     <h2>${l.name}</h2>
@@ -464,15 +578,43 @@ async function openLead(id){
       <dt>Segment</dt><dd>${l.student}${l.intl ? ' · international' : ''}${l.score ? ' · score ' + l.score : ''} · ${l.source || 'no source'}</dd>
     </dl>
     ${p.inheritedUntouched ? '<div class="call warnbox"><span class="k">Inherited and untouched</span><p>Worked by a previous owner and never called by the current one.</p></div>' : ''}
+    ${l.manual ? `<div class="call warnbox"><span class="k">Added by hand${l.addedAt ? ' on ' + l.addedAt : ''}</span>
+      <p>${l.scopeFail ? 'It does not meet the qualification rule: ' + esc(l.scopeFail) + '. It is in your queue because you put it there.'
+        : 'It qualifies on the normal rules, it was simply not waiting in the synced set.'}
+      <a href="#" onclick="unpin('${l.id}');return false" style="color:var(--accent)">remove it</a></p></div>` : ''}
+
+    <h3>Notes</h3>
+    <p class="dim" style="font-size:11.5px;margin:0 0 10px">What was actually said. These live on this desk only
+      and are never written to the contact record, so nobody sees them from inside HubSpot.</p>
+    <ul class="tl" id="nList"></ul>
+    <div class="ctl" style="margin:10px 0 0;display:block">
+      <textarea id="nText" placeholder="the latest update, in your words" rows="3"
+        style="width:100%;font-family:inherit;font-size:13px;padding:9px;border:1px solid var(--line2);
+               background:var(--surface);color:var(--ink);border-radius:3px"></textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
+        <input id="nAgent" list="agentNames" placeholder="heard from"
+          style="font-size:12px;padding:6px 9px;border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:3px;flex:1;min-width:130px">
+        <input id="nBy" placeholder="your name" value="${esc(remembered('desk_me'))}"
+          style="font-size:12px;padding:6px 9px;border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:3px;width:120px">
+        <button class="btn primary" onclick="addNote('${l.id}')">Save note</button>
+        <span class="sum" id="nMsg"></span>
+      </div>
+    </div>
+    <datalist id="agentNames">${AGENTS.filter(a => a.ownerId).map(a => `<option value="${esc(a.name)}">`).join('')}</datalist>
+
     <h3>Stage history</h3><ul class="tl">${(l.stagePath || []).map(s => `<li><b>${stageName(s.stage)}</b> <span class="dim">${s.at}</span></li>`).join('') || '<li class="dim">no history recorded</li>'}</ul>
     <h3>Owner history</h3><ul class="tl">${(l.ownerPath || []).map(o => `<li><b>${o.owner}</b>${o.active === false ? ' <span class="badge b-off">archived</span>' : ''} <span class="dim">${o.at}</span></li>`).join('') || '<li class="dim">never reassigned</li>'}</ul>
     ${l.reason ? `<h3>Reason recorded</h3><pre>${esc(l.reason)}</pre>` : ''}
     <h3>Call transcript</h3><pre>${l.transcript ? esc(l.transcript) : 'no sales call transcript on this lead'}</pre>
     ${l.aiTranscript ? `<h3>AI caller transcript</h3><pre>${esc(l.aiTranscript)}</pre>` : ''}
   </div>`;
+  drawNotes(l.id);
 }
 function esc(s){ return String(s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
-async function refresh(){ await fetch('/api/refresh', { method: 'POST' }); flash('resync started, give it a few minutes'); }
+async function refresh(){
+  try { await post('/api/refresh'); flash('resync started, give it a few minutes'); }
+  catch (e) { flash(e.message, true); }
+}
 boot();
 </script>
 </body>

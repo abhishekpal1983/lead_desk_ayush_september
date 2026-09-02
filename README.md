@@ -58,14 +58,40 @@ npm start                 # http://localhost:3000
 | `crm.objects.contacts.read` | leads, properties, and the property history that drives every progress field |
 | `crm.objects.owners.read` | agent names, including archived owners |
 
-**This service is read only.** It has no write endpoint and needs no write scope, so the existing
-`agent_lead_bucket` service key works without modification. Reassignment happens in HubSpot: the
-Assign tab copies the selected leads' emails, semicolon separated, and you paste them into a Contacts
-filter on Email "is any of", select all, and use Assign there. The destructive step keeps HubSpot's
-own audit trail and undo.
+**This service never writes to HubSpot.** It holds no write scope and has no endpoint that could
+change a contact, so the existing `agent_lead_bucket` service key works without modification.
+Reassignment happens in HubSpot: the Assign tab copies the selected leads' emails, semicolon
+separated, and you paste them into a Contacts filter on Email "is any of", select all, and use
+Assign there. The destructive step keeps HubSpot's own audit trail and undo.
 
-Set `DESK_KEY` to something long in any shared deployment, so `/api/refresh` cannot be triggered by
-anyone with the URL.
+The desk does own two pieces of state, and both are local to it: prospects added here by hand, and
+the notes typed against a lead. Neither reaches the CRM, so a note is invisible from inside HubSpot.
+
+Set `DESK_KEY` to something long in any shared deployment, so the notes, the hand added list and
+`/api/refresh` cannot be touched by anyone who has the URL.
+
+## The desk's own data
+
+Everything else in this process is a cache that rebuilds from HubSpot on boot. The notes and the
+hand added prospects cannot be rebuilt, so they are written to `DATA_DIR/desk.json` (default
+`/data`), replaced atomically through a temp file and a rename so a crash mid write cannot truncate
+it. On Railway that path must be a **mounted volume** or a redeploy erases it.
+
+Whether a volume is actually mounted cannot be detected from inside the container, so the file
+counts boots. A file that comes back carrying a previous boot has outlived a restart, which is the
+only honest proof the disk is persistent. Until that happens the masthead reads *disk unproven,
+attach a volume*, and afterwards *notes on disk*.
+
+## Adding a prospect by hand
+
+`POST /api/manual {email}` looks the contact up in HubSpot, builds it through the same `buildLead`
+the sync uses, and pins it. Two consequences worth knowing:
+
+- The lead sits outside every sync filter, so `syncLeads`'s sweep is told to spare pinned ids and
+  `syncPinned` refreshes them by id on each pass.
+- A pinned lead is admitted even when it fails its creator's qualification rule. `scopeFail` records
+  which rule it went around and the UI marks the row **BY HAND**, so an override is visible rather
+  than quietly moving the counts. Removing the pin puts the lead back under the normal rule.
 
 ## Sync cadence
 
@@ -83,12 +109,18 @@ between them. Widening that filter will make the sync take hours, so widen it on
 
 | Route | Does |
 |---|---|
-| `GET /api/meta` | creators, scope rule labels, sync status, whether writes are on |
+| `GET /api/meta` | creators, scope rule labels, sync status, and whether the store has proved itself |
 | `GET /api/agents?creator=` | every owner holding leads, with counts by stage group, P1 count, overdue, uncalled, value |
-| `GET /api/leads?creator=&owner=&stage=&tier=&group=&minValue=&limit=` | the queue, ordered by value |
-| `GET /api/lead/:id` | one lead in full: stage path, owner path, recent calls, transcript |
+| `GET /api/leads?creator=&owner=&stage=&tier=&group=&ownerState=&manual=&noted=&minValue=&limit=` | the queue, ordered by value, with agent and stage aggregates taken over the whole filtered set rather than the returned page |
+| `GET /api/lead/:id` | one lead in full: stage path, owner path, notes, transcript |
+| `POST /api/manual {email}` | look a contact up by email and pin it into the desk |
+| `DELETE /api/manual/:id` | unpin it, putting it back under the normal scope rule |
+| `POST /api/comment/:id {text, by, agent}` | record what was said. Desk only, never HubSpot |
+| `DELETE /api/comment/:id/:idx` | remove one note |
 | `POST /api/refresh` | kick every sync |
 | `GET /api/health` | running SHA free health check for the deploy |
+
+Every route that changes something respects `DESK_KEY` through the `x-desk-key` header.
 
 ## Deploy on Railway
 
