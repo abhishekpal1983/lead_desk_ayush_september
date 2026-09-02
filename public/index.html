@@ -123,6 +123,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
   <h1>Lead Desk</h1>
   <span style="flex:1"></span>
   <div class="mastmeta" id="mastmeta"><span>loading</span></div>
+  <span id="lock" style="display:flex;gap:6px;align-items:center"></span>
   <button class="btn" onclick="refresh()">Force resync</button>
 </header>
 
@@ -249,8 +250,45 @@ async function post(url, body, method){
     body: body === undefined ? undefined : JSON.stringify(body)
   });
   const j = await r.json().catch(() => ({}));
+  if (r.status === 401) {                    // the stored key is wrong or gone: ask again rather than fail on
+    remember('desk_key', '');
+    drawLock();
+    throw new Error('this desk is key protected, unlock it at the top right first');
+  }
   if (!r.ok) throw new Error(j.error || `${r.status} from the service`);
   return j;
+}
+
+// The service can be locked with DESK_KEY. Without somewhere to put that key the page would
+// 401 on the first note with no way forward, so the key is asked for once and kept locally.
+function drawLock(){
+  const el = $('lock');
+  if (!el) return;
+  if (!META.keyed) { el.innerHTML = ''; return; }
+  if (remembered('desk_key')) {
+    el.innerHTML = `<span class="pos">unlocked</span>
+      <a href="#" onclick="remember('desk_key','');drawLock();return false" style="color:var(--accent);font-size:11px">lock</a>`;
+    return;
+  }
+  el.innerHTML = `<button class="btn" onclick="askKey()">Unlock to add notes</button>`;
+}
+function askKey(){
+  $('lock').innerHTML = `<input id="keyBox" type="password" placeholder="desk key" autocomplete="off"
+      onkeydown="if(event.key==='Enter')saveKey()"
+      style="font-family:'JetBrains Mono',monospace;font-size:11.5px;padding:5px 8px;width:170px;
+             border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:3px">
+    <button class="btn" onclick="saveKey()">Save</button> <span class="sum" id="keyMsg"></span>`;
+  $('keyBox').focus();
+}
+async function saveKey(){
+  const k = $('keyBox').value.trim();
+  if (!k) return;
+  $('keyMsg').textContent = 'checking';
+  const r = await fetch('/api/keycheck', { headers: { 'x-desk-key': k } });
+  if (!r.ok) { $('keyMsg').innerHTML = '<span class="neg">that key is not right</span>'; return; }
+  remember('desk_key', k);
+  drawLock();
+  flash('unlocked, notes and hand added prospects will save now');
 }
 
 async function boot(){
@@ -268,6 +306,7 @@ async function boot(){
     `<span class="pos">no HubSpot writes</span>` + disk;
   const err = Object.entries(s).filter(([, v]) => v && v.err).map(([k, v]) => `${k}: ${v.err}`);
   if (err.length) $('mastmeta').innerHTML += `<span class="neg">${err[0]}</span>`;
+  drawLock();
   const opts = '<option value="">All creators</option>' + (META.creators || []).map(c => `<option>${c}</option>`).join('');
   $('fCreator').innerHTML = opts; $('aCreator').innerHTML = opts;
   await loadAgents();

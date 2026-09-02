@@ -475,6 +475,7 @@ app.get('/api/meta', (req, res) => {
     creators: CREATORS, leads: S.leads.size, readOnly: true,
     scopeRules: Object.fromEntries(Object.entries(SCOPE).map(([k, v]) => [k, v.label])),
     sync: S.meta, portal: PORTAL, ui: UI,
+    keyed: !!DESK_KEY,        // so the page can ask for the key instead of failing at the first write
     store: { ...store, pinned: Object.keys(DB.pinned).length, noted: Object.keys(DB.comments).length }
   });
 });
@@ -682,6 +683,12 @@ app.post('/api/refresh', async (req, res) => {
   if (!guard(req, res)) return;
   res.json({ started: true });
   runAll().catch(e => console.error('refresh failed', e));
+});
+
+// Lets the page check a key before the user has typed a note against it.
+app.get('/api/keycheck', (req, res) => {
+  if (!guard(req, res)) return;
+  res.json({ ok: true });
 });
 
 app.get('/api/health', (req, res) => {
