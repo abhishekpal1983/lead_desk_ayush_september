@@ -142,6 +142,12 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
     <select id="qTier" onchange="loadLeads()"><option value="">All</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
     <label for="qStage">Stage</label><select id="qStage" onchange="loadLeads()"><option value="">All</option></select>
     <label><input type="checkbox" id="qHide" onchange="loadLeads()"> hide called</label>
+    <label for="qMeet">Meeting</label>
+    <select id="qMeet" onchange="loadLeads()">
+      <option value="">All</option><option value="any">Ever booked one</option>
+      <option value="held">Held</option><option value="booked">Upcoming</option>
+      <option value="off">Cancelled or no show</option><option value="none">Never booked</option>
+    </select>
     <label><input type="checkbox" id="qManual" onchange="loadLeads()"> added by hand</label>
     <label><input type="checkbox" id="qNoted" onchange="loadLeads()"> has a note</label>
     <span class="sum" id="qSum"></span>
@@ -158,7 +164,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
   </div>
 
   <div class="tablewrap"><table><thead><tr>
-    <th class="ck">done</th><th class="l">Lead</th><th class="l">Stage</th><th>Tier</th><th>Calls</th>
+    <th class="ck">done</th><th class="l">Lead</th><th class="l">Stage</th><th>Tier</th><th>Meeting</th><th>Calls</th>
     <th>Days in stage</th><th>Last call</th><th>Follow up</th><th>Score</th><th>₹ value</th>
   </tr></thead><tbody id="qBody"></tbody></table></div>
 </div>
@@ -353,6 +359,7 @@ async function loadLeads(){
     const manual = $('qManual').checked, noted = $('qNoted').checked;
     if (manual) q.set('manual', '1');
     if (noted) q.set('noted', '1');
+    if ($('qMeet').value) q.set('meeting', $('qMeet').value);
     // A prospect added by hand often has no owner, or an archived one. Constraining these
     // views to the roster would hide the very leads the filter was ticked to find.
     if (!manual && !noted) q.set('ownerState', 'active');
@@ -426,6 +433,18 @@ function leadCell(l){
     <a href="#" onclick="openLead('${l.id}');return false" style="margin-left:9px;color:var(--accent);font-size:12px">detail</a>${flag}${n}`;
 }
 
+// Held means the slot has passed and nobody marked it cancelled, no show or rescheduled.
+// Almost nobody sets the outcome to Completed, so requiring that would read no for everyone.
+// A tick marks the few that were explicitly closed out.
+function meetCell(m){
+  if (!m) return '<span class="dim">no</span>';
+  const label = { held: 'Held', booked: 'Upcoming', off: 'Did not happen' }[m.state] || 'yes';
+  const cls = m.state === 'held' ? 'pos' : m.state === 'off' ? 'neg' : 'dim';
+  const more = m.n > 1 ? ` <span class="dim">×${m.n}</span>` : '';
+  return `<span class="${cls}" title="${esc((m.title || 'meeting') + ' · ' + (m.outcome || 'no outcome set'))}">${label}${m.completed ? ' ✓' : ''}</span>
+    <div class="dim" style="font-size:10.5px">${m.at || ''}</div>${more}`;
+}
+
 const stageName = s => ({
   rcb_requested_callback: 'Callback req.', discovery: 'Discovery', program_pitched: 'Programme pitched',
   pricing_pitched: 'Pricing pitched', counselled: 'Counselled', 'Follow up': 'Follow up',
@@ -441,11 +460,12 @@ function render(){
         <td class="l name">${leadCell(l)}</td>
         <td class="l name">${stageName(l.stage)}</td>
         <td><span class="tg ${l.tier}">${l.tier}</span></td>
+        <td>${meetCell(l.meeting)}</td>
         <td>${l.callsInStage}</td><td>${l.daysInStage ?? ''}</td>
         <td class="dim">${l.lastCallAt || 'never'}</td>
         <td class="${od ? 'neg' : 'dim'}">${l.followUpAt || 'none'}</td>
         <td>${l.score || ''}</td><td>${fmt(l.value)}</td></tr>`;
-    }).join('') : '<tr><td colspan="10" class="empty">Pick an agent above, or clear the filters.</td></tr>';
+    }).join('') : '<tr><td colspan="11" class="empty">Pick an agent above, or clear the filters.</td></tr>';
   } else {
     $('aBody').innerHTML = ROWS.length ? ROWS.map(l => {
       const od = l.followUpAt && l.followUpAt < today;
@@ -611,6 +631,11 @@ async function openLead(id){
       <dt>Owner moves</dt><dd>${p.ownerChanges ?? 'unknown'}</dd>
       <dt>Stage moves</dt><dd>${p.stageChanges ?? 'unknown'} · ${l.daysInStage ?? '?'} days in this stage</dd>
       <dt>First counselled</dt><dd>${p.firstCounselledAt || 'never'}</dd>
+      <dt>Meeting</dt><dd>${l.meeting
+        ? `${{ held: 'held', booked: 'booked, still upcoming', off: 'booked but cancelled or no show' }[l.meeting.state]} · ${l.meeting.at}` +
+          `${l.meeting.n > 1 ? ` · ${l.meeting.n} in total` : ''}` +
+          `${l.meeting.completed ? ' · marked Completed in HubSpot' : ''}`
+        : 'never booked one'}</dd>
       <dt>Calls</dt><dd>${l.callsInStage} in this stage, ${l.callsByOwner} of them by the current owner</dd>
       <dt>Last call</dt><dd>${l.lastCallAt || 'never'}</dd>
       <dt>Follow up</dt><dd class="${l.followUpAt && l.followUpAt < today ? 'neg' : ''}">${l.followUpAt || 'none set'}</dd>
@@ -641,6 +666,10 @@ async function openLead(id){
     </div>
     <datalist id="agentNames">${AGENTS.filter(a => a.ownerId).map(a => `<option value="${esc(a.name)}">`).join('')}</datalist>
 
+    ${(l.meetings || []).length ? `<h3>Meetings</h3><ul class="tl">${l.meetings.map(m =>
+      `<li><b>${esc(m.title || 'meeting')}</b> <span class="dim">${m.at} · ${esc(m.outcome || 'no outcome set')}</span></li>`).join('')}</ul>
+      <p class="dim" style="font-size:11px;margin:-6px 0 14px">Held means the slot passed and nobody marked it cancelled,
+      no show or rescheduled. Outcome is set on only a fraction of meetings in this portal, so it is not required.</p>` : ''}
     <h3>Stage history</h3><ul class="tl">${(l.stagePath || []).map(s => `<li><b>${stageName(s.stage)}</b> <span class="dim">${s.at}</span></li>`).join('') || '<li class="dim">no history recorded</li>'}</ul>
     <h3>Owner history</h3><ul class="tl">${(l.ownerPath || []).map(o => `<li><b>${o.owner}</b>${o.active === false ? ' <span class="badge b-off">archived</span>' : ''} <span class="dim">${o.at}</span></li>`).join('') || '<li class="dim">never reassigned</li>'}</ul>
     ${l.reason ? `<h3>Reason recorded</h3><pre>${esc(l.reason)}</pre>` : ''}

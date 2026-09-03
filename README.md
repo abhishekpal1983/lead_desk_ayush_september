@@ -1,7 +1,7 @@
 # Lead Desk
 
 A standalone service for Topmate sales ops: per agent calling queues, per lead progress history,
-and bulk reassignment that writes back to HubSpot.
+and a reassignment list you action inside HubSpot. It never writes to the CRM itself.
 
 It is deliberately **separate from `agent_lead_bucket`**. Its own repo, its own Railway service,
 its own token, its own cache. It does not touch the Call Now view, the revenue pages, or any
@@ -40,8 +40,10 @@ judgement, calibrated against the agreed base case. Change them in one place and
 `SCOPE` in `server.js` holds the per creator qualification. Today only `ayush_singh13` has one:
 professionals and unknowns everywhere, students only once they reach pricing pitched, counselled or
 payment prospect, and no Pakistan or Bangladesh numbers. Every other creator passes everything through.
-Add a creator by adding a `test(lead)` and a human readable `label`; the label is served on `/api/meta`
-so the UI can always say what it is filtering.
+Add a creator by adding a `why(lead)` and a human readable `label`. `why` returns the reason a lead
+fails, or an empty string when it qualifies, so a prospect added by hand can be admitted while the
+UI still shows which rule it went around. The label is served on `/api/meta` so the page can always
+say what it is filtering.
 
 ## Setup
 
@@ -82,6 +84,31 @@ counts boots. A file that comes back carrying a previous boot has outlived a res
 only honest proof the disk is persistent. Until that happens the masthead reads *disk unproven,
 attach a volume*, and afterwards *notes on disk*.
 
+## The Meeting column
+
+`hs_meeting_outcome` cannot answer "was a meeting held". Portal wide, **121** meetings are marked
+Completed against **3,017** left on Scheduled and **1,552** with no outcome at all. In August, 372
+meetings were booked and 2 were marked Completed. The field is not maintained, so reading it
+literally would report "no meeting" for almost everyone who actually sat in one, and the column
+would measure who updates HubSpot rather than who met a prospect.
+
+So the desk derives the state instead:
+
+| Shown | Means |
+|---|---|
+| **Held** | a meeting whose start time has passed, not marked Cancelled, No Show or Rescheduled. A ✓ marks the few explicitly closed out as Completed |
+| **Upcoming** | a meeting still in the future. Booking is an intent signal in its own right |
+| **Did not happen** | the only meetings on the lead were cancelled, no-showed or rescheduled away |
+| **no** | no meeting was ever booked |
+
+The honest caveat: a meeting booked, never held and never marked reads Held. Given nobody sets the
+outcome, treating a passed slot as held is the less wrong of the two errors, but it is an
+assumption, not a fact. `meeting.completed` carries the strict flag separately for anyone who wants
+the hard version.
+
+This is a list, not a search, so the 10,000 cap does not apply and the whole object is cheap:
+roughly 4,800 meetings at 100 a page. Filter with `?meeting=any|held|booked|off|none`.
+
 ## Adding a prospect by hand
 
 `POST /api/manual {email}` looks the contact up in HubSpot, builds it through the same `buildLead`
@@ -98,6 +125,7 @@ the sync uses, and pins it. Two consequences worth knowing:
 | Sync | Default | Cost |
 |---|---|---|
 | leads | every 10 min | one search per creator per stage group, split by create date whenever a partition exceeds 9,000 |
+| meetings | every 30 min | the whole meetings object with contact associations, 100 per page, about 50 calls |
 | history | every 60 min | `batch/read` at 50 ids per call, in scope workable and IFC leads only |
 | owners | every 6 h | two passes, active and archived |
 
@@ -111,7 +139,7 @@ between them. Widening that filter will make the sync take hours, so widen it on
 |---|---|
 | `GET /api/meta` | creators, scope rule labels, sync status, and whether the store has proved itself |
 | `GET /api/agents?creator=` | every owner holding leads, with counts by stage group, P1 count, overdue, uncalled, value |
-| `GET /api/leads?creator=&owner=&stage=&tier=&group=&ownerState=&manual=&noted=&minValue=&limit=` | the queue, ordered by value, with agent and stage aggregates taken over the whole filtered set rather than the returned page |
+| `GET /api/leads?creator=&owner=&stage=&tier=&group=&ownerState=&manual=&noted=&meeting=&minValue=&limit=` | the queue, ordered by value, with agent and stage aggregates taken over the whole filtered set rather than the returned page |
 | `GET /api/lead/:id` | one lead in full: stage path, owner path, notes, transcript |
 | `POST /api/manual {email}` | look a contact up by email and pin it into the desk |
 | `DELETE /api/manual/:id` | unpin it, putting it back under the normal scope rule |

@@ -132,7 +132,8 @@ const S = {
   meta: {
     leads: { at: null, n: 0, err: null },
     history: { at: null, n: 0, err: null },
-    owners: { at: null, n: 0, err: null }
+    owners: { at: null, n: 0, err: null },
+    meetings: { at: null, n: 0, err: null }
   },
   readOnly: true
 };
@@ -306,7 +307,9 @@ function buildLead(r) {
     source: p.actual_source || '',
     intl: p.international_number === 'true',
     touches: Number(p.num_contacted_notes) || 0,
-    progress: prev.progress || null      // preserved across lead syncs
+    progress: prev.progress || null,     // preserved across lead syncs
+    meeting: prev.meeting || null,
+    meetings: prev.meetings || null
   };
   lead.daysInStage = daysSince(lead.stageChangedAt);
   lead.value = scoreOf(lead);
@@ -433,6 +436,109 @@ async function syncHistoryFor(ids) {
   return n;
 }
 
+// ---------------------------------------------------------------- sync: meetings
+// Whether a meeting was ever booked on a lead, and whether its slot has passed.
+//
+// hs_meeting_outcome cannot answer "was it held" on its own. Portal wide, 121 meetings are
+// marked Completed against 3,017 left on Scheduled and 1,552 with no outcome at all; in
+// August, 372 were booked and 2 were marked Completed. Nobody closes the loop on the field,
+// so trusting it literally would report "no meeting" for almost every lead who sat in one.
+//
+// So a meeting counts as HELD when its start time has passed and nobody marked it Cancelled,
+// No Show or Rescheduled. Upcoming meetings read BOOKED, which is an intent signal in its own
+// right. A lead whose only meetings were cancelled or no-showed reads OFF rather than blank,
+// because "they booked and did not turn up" is not the same as "they never engaged".
+//
+// This is a list, not a search, so the 10,000 cap does not apply and the whole object is
+// cheap: roughly 4,800 meetings, 100 per page, under fifty calls.
+const MEET_PROPS = ['hs_meeting_title', 'hs_meeting_start_time', 'hs_meeting_end_time',
+  'hs_meeting_outcome', 'hs_timestamp'];
+const MEET_FAILED = ['CANCELED', 'CANCELLED', 'NO_SHOW', 'RESCHEDULED'];
+
+async function syncMeetings() {
+  const byContact = new Map();
+  let after, pages = 0, seen = 0;
+  do {
+    const q = `/crm/v3/objects/meetings?limit=100&archived=false` +
+      `&properties=${MEET_PROPS.join(',')}&associations=contacts` + (after ? `&after=${after}` : '');
+    const page = await hs(q);
+    for (const m of page.results || []) {
+      seen++;
+      const p = m.properties || {};
+      const at = p.hs_meeting_start_time || p.hs_timestamp || '';
+      const outcome = p.hs_meeting_outcome || '';
+      const ids = ((m.associations && m.associations.contacts && m.associations.contacts.results) || [])
+        .map(a => String(a.id));
+      if (!ids.length) continue;
+      const rec = { at, outcome, title: p.hs_meeting_title || '' };
+      for (const id of ids) {
+        if (!byContact.has(id)) byContact.set(id, []);
+        byContact.get(id).push(rec);
+      }
+    }
+    after = page.paging && page.paging.next && page.paging.next.after;
+    if (++pages > 400) { console.warn('meetings sync stopped at 400 pages'); break; }
+    await sleep(120);
+  } while (after);
+
+  // Attach to whatever leads the desk currently holds, clearing leads that no longer match.
+  let n = 0;
+  for (const lead of S.leads.values()) {
+    const list = byContact.get(lead.id);
+    attachMeetings(lead, list);
+    if (list) n++;
+  }
+  S.meta.meetings = { at: new Date().toISOString(), n, err: null };
+  console.log(`meetings: ${seen} scanned, ${byContact.size} contacts with one, ${n} matched a lead in the desk`);
+  return n;
+}
+
+// A lead pinned by hand would otherwise show "never booked one" until the next full pass,
+// which is worse than showing nothing, so its meetings are pulled by association right away.
+async function syncMeetingsFor(ids) {
+  for (const id of ids) {
+    let list = [];
+    try {
+      const a = await hs(`/crm/v4/objects/contacts/${id}/associations/meetings?limit=100`);
+      const mids = (a.results || []).map(x => String(x.toObjectId)).filter(Boolean);
+      if (mids.length) {
+        const r = await hs('/crm/v3/objects/meetings/batch/read', {
+          method: 'POST',
+          body: JSON.stringify({ properties: MEET_PROPS, inputs: mids.map(m => ({ id: m })) })
+        });
+        list = (r.results || []).map(m => ({
+          at: m.properties.hs_meeting_start_time || m.properties.hs_timestamp || '',
+          outcome: m.properties.hs_meeting_outcome || '',
+          title: m.properties.hs_meeting_title || ''
+        }));
+      }
+    } catch (e) {
+      console.error('meetings for pinned lead failed:', e.message);
+      continue;
+    }
+    attachMeetings(S.leads.get(id), list);
+  }
+}
+
+// Shared by both paths so a hand added lead is judged by exactly the same rule.
+function attachMeetings(lead, list) {
+  if (!lead) return;
+  if (!list || !list.length) { lead.meeting = null; lead.meetings = null; return; }
+  list.sort((a, b) => new Date(b.at) - new Date(a.at));
+  const now = Date.now();
+  const usable = list.filter(m => !MEET_FAILED.includes(m.outcome));
+  const held = usable.filter(m => m.at && new Date(m.at).getTime() < now);
+  const upcoming = usable.filter(m => m.at && new Date(m.at).getTime() >= now);
+  const marker = held[0] || upcoming[0] || list[0];
+  lead.meetings = list.slice(0, 10);
+  lead.meeting = {
+    state: held.length ? 'held' : upcoming.length ? 'booked' : 'off',
+    at: marker ? marker.at : '', title: marker ? marker.title : '',
+    outcome: marker ? marker.outcome : '', n: list.length,
+    completed: list.some(m => m.outcome === 'COMPLETED')
+  };
+}
+
 // No calls sync. The contact itself carries what the desk needs: last_call_date_and_time
 // for the last conversation, callscurrent_stage for calls made in the current stage, and
 // call_in_current_stage_by_current_owner for how many of those the present owner made.
@@ -448,6 +554,7 @@ function shape(l) {
   return {
     manual: !!l.manual,
     scopeFail: l.scopeFail || '',
+    meeting: l.meeting ? { ...l.meeting, at: ymd(l.meeting.at) } : null,
     addedAt: DB.pinned[l.id] ? ymd(DB.pinned[l.id].addedAt) : '',
     notes: notes.length,
     lastNote: last ? { at: ymd(last.at), by: last.by, agent: last.agent, text: last.text.slice(0, 200) } : null,
@@ -513,11 +620,14 @@ app.get('/api/agents', (req, res) => {
 // dropdown and the summary must describe the WHOLE filtered set, not the first page
 // of it. So the aggregates are computed before the slice and returned alongside.
 app.get('/api/leads', (req, res) => {
-  const { creator, owner, stage, tier, scope, group, minValue, ownerState, manual, noted } = req.query;
+  const { creator, owner, stage, tier, scope, group, minValue, ownerState, manual, noted, meeting } = req.query;
   let out = [...S.leads.values()];
   if (scope !== 'all') out = out.filter(l => l.inScope);
   if (manual === '1') out = out.filter(l => l.manual);
   if (noted === '1') out = out.filter(l => notesFor(l.id).length);
+  if (meeting === 'any') out = out.filter(l => l.meeting);
+  else if (meeting === 'none') out = out.filter(l => !l.meeting);
+  else if (meeting) out = out.filter(l => l.meeting && l.meeting.state === meeting);
   if (creator) out = out.filter(l => l.creator === creator);
   if (group === 'workable') out = out.filter(l => WORKABLE.includes(l.stage));
   if (group === 'late') out = out.filter(l => LATE.includes(l.stage));
@@ -576,6 +686,7 @@ app.get('/api/lead/:id', async (req, res) => {
   if (!lead) return res.status(404).json({ error: 'not in the desk cache' });
   const out = shape(lead);
   out.comments = notesFor(lead.id).map((c, i) => ({ ...c, at: c.at, idx: i }));
+  out.meetings = (lead.meetings || []).map(m => ({ at: ymd(m.at), outcome: m.outcome, title: m.title }));
   const pr = lead.progress || {};
   out.stagePath = (pr.stagePath || []).map(v => ({ stage: v.stage, at: ymd(v.at) }));
   out.ownerPath = (pr.ownerPath || []).map(v => {
@@ -633,6 +744,7 @@ app.post('/api/manual', async (req, res) => {
   const lead = buildLead(r);              // reads DB.pinned, so it comes back already flagged manual
   S.leads.set(r.id, lead);
   const persisted = saveDB();
+  await syncMeetingsFor([r.id]).catch(e => console.error('meetings for pinned lead failed:', e.message));
   syncHistoryFor([r.id]).catch(e => console.error('history for pinned lead failed:', e.message));
   res.json({ ok: true, persisted, duplicates: hits.length - 1, lead: shape(lead) });
 });
@@ -704,6 +816,7 @@ async function runAll() {
   await safe('owners', syncOwners);
   await safe('leads', syncLeads);
   await safe('pinned', syncPinned);      // after leads, so the sweep cannot drop them
+  await safe('meetings', syncMeetings);  // needs the leads in place to attach to
   await safe('history', syncHistory);
 }
 const port = process.env.PORT || 3000;
@@ -712,6 +825,7 @@ app.listen(port, () => {
   console.log(`lead desk listening on ${port}, ${CREATORS.length} creators, no HubSpot writes`);
   runAll().catch(e => console.error('first sync failed', e));
   setInterval(() => safe('leads', syncLeads), (Number(process.env.SYNC_MINUTES) || 10) * MIN);
+  setInterval(() => safe('meetings', syncMeetings), (Number(process.env.MEETING_MINUTES) || 30) * MIN);
   setInterval(() => safe('history', syncHistory), (Number(process.env.HISTORY_MINUTES) || 60) * MIN);
   setInterval(() => safe('owners', syncOwners), 6 * 60 * MIN);
 });
