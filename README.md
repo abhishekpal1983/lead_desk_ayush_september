@@ -66,6 +66,13 @@ Reassignment happens in HubSpot: the Assign tab copies the selected leads' email
 separated, and you paste them into a Contacts filter on Email "is any of", select all, and use
 Assign there. The destructive step keeps HubSpot's own audit trail and undo.
 
+The Assign tab covers two different moves. **Needs an owner**, the default, is the rescue case:
+leads with a deactivated account or no owner at all. **Anyone** and **With an active agent** open up
+rebalancing, so a lead can be moved from one live agent to another. The load strip above the filters
+shows every owner holding leads in the current scope with their count, P1 count and value, so an
+overloaded book is visible before you decide who to pull from; clicking an owner there filters to
+their leads and switches the state filter out of the rescue-only default.
+
 The desk does own two pieces of state, and both are local to it: prospects added here by hand, and
 the notes typed against a lead. Neither reaches the CRM, so a note is invisible from inside HubSpot.
 

@@ -170,8 +170,11 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
 </div>
 
 <div id="pane-a" hidden>
-  <p class="note">Every lead below sits with an archived account, an unowned record, or an active owner who is
-    not on the September roster for this creator. Filter, select, choose who should get them, then assign.</p>
+  <p class="note">Pick who the leads are coming from, filter, select, then copy the emails and make the move in
+    HubSpot. <strong>Needs an owner</strong> is the default: leads sitting with a deactivated account or no owner
+    at all. Switch to <strong>Anyone</strong> or click an agent below to pull from someone's live book and even
+    out the load.</p>
+  <div class="chips" id="aChips"></div>
   <div class="ctl">
     <label for="aCreator">Creator</label><select id="aCreator" onchange="setCreator(this.value)"></select>
     <label for="aTier">Tier</label>
@@ -180,7 +183,13 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
     <label for="aOwner">Currently with</label><select id="aOwner" onchange="loadLeads()"><option value="">All</option></select>
     <label for="target">Intended owner</label><select id="target"></select>
     <label for="aState">Owner state</label>
-    <select id="aState" onchange="loadLeads()"><option value="assignable">All that need an owner</option><option value="unowned">Unowned</option><option value="archived">With a deactivated agent</option></select>
+    <select id="aState" onchange="aOwnerReset()">
+      <option value="assignable">Needs an owner</option>
+      <option value="all">Anyone, active agents included</option>
+      <option value="active">With an active agent</option>
+      <option value="unowned">Unowned</option>
+      <option value="archived">With a deactivated agent</option>
+    </select>
     <button class="btn" onclick="selAll(true)">Select all shown</button>
     <button class="btn" onclick="selAll(false)">Clear</button>
     <span class="sum" id="aSum"></span>
@@ -395,12 +404,37 @@ async function loadAgents(){
   $('target').innerHTML = AGENTS.filter(a => a.ownerId && a.active)
     .map(a => `<option value="${a.ownerId}">${a.name}</option>`).join('')
     || '<option value="">no active owners for this creator</option>';
-  $('aOwner').innerHTML = '<option value="">All</option>' +
-    AGENTS.filter(a => !ROSTER.has(a.ownerId)).map(a =>
-      `<option value="${a.ownerId || 'unowned'}">${a.name}</option>`).join('');
+  // Every owner who holds anything, active ones included, because moving a lead between two
+  // live agents is as much a reassignment as rescuing one from a deactivated account.
+  $('aOwner').innerHTML = '<option value="">Anyone</option>' +
+    AGENTS.map(a => `<option value="${a.ownerId || 'unowned'}">${esc(a.name)}` +
+      `${a.ownerId ? (a.active ? '' : ' (deactivated)') : ''} · ${fmt(a.total)}</option>`).join('');
   await loadLeads();
 }
 function pick(o){ curOwner = curOwner === o ? null : o; loadLeads(); }
+
+// Picking an owner to pull from and picking an owner state are the same decision made two
+// ways, so choosing a state clears a now contradictory owner rather than returning nothing.
+function aOwnerReset(){ $('aOwner').value = ''; loadLeads(); }
+function aPick(id){
+  $('aOwner').value = $('aOwner').value === id ? '' : id;
+  if ($('aOwner').value && $('aState').value === 'assignable') $('aState').value = 'all';
+  loadLeads();
+}
+
+// The load strip. Same data as the queue chips, but here it answers "who is carrying too
+// much" rather than "whose queue am I working", so it shows everyone holding leads in scope.
+function drawOwnerLoad(list){
+  const out = list.slice().sort((a, b) => b.value - a.value);
+  const cur = $('aOwner').value;
+  $('aChips').innerHTML = out.length ? out.map(a => {
+    const id = a.ownerId || 'unowned';
+    const tag = a.active === true ? '' : a.active === 'unowned'
+      ? ' <span class="badge b-un">unowned</span>' : ' <span class="badge b-off">deactivated</span>';
+    return `<button class="chip" aria-pressed="${cur === id}" onclick="aPick('${id}')">
+      <b>${esc(a.name)}${tag}</b>${fmt(a.n)} leads · ${fmt(a.p1)} P1 · ${lakh(a.value)}</button>`;
+  }).join('') : '<span class="sum">nobody holds leads matching these filters</span>';
+}
 
 // One fetch drives the chips, the stage list and the table, so everything on screen
 // reflects the same creator, tier and stage. The chips and the stage counts come from
@@ -431,7 +465,8 @@ async function loadLeads(){
   const r = await (await fetch('/api/leads?' + q)).json();
   LAST = r;
   fillStages(r.stages);
-  drawChips(r.agents.filter(a => a.active === true));
+  if (tab === 'q') drawChips(r.agents.filter(a => a.active === true));
+  else drawOwnerLoad(r.agents);
 
   let rows = r.rows;
   if (tab === 'q' && $('qHide').checked) rows = rows.filter(l => !done.has(l.id));
@@ -440,8 +475,18 @@ async function loadLeads(){
   // The totals describe the full set; the table shows the top slice of it by value.
   const shown = rows.length < r.total ? ` · showing the top ${fmt(rows.length)}` : '';
   const label = `${fmt(r.total)} leads · ${lakh(r.value)}${shown}`;
-  if (tab === 'q') $('qSum').textContent = label + (curOwner ? '' : ` · across ${fmt(ROSTER.size)} agents`);
-  else $('aSum').textContent = label + ' · waiting on an owner';
+  if (tab === 'q') {
+    $('qSum').textContent = label + (curOwner ? '' : ` · across ${fmt(ROSTER.size)} agents`);
+  } else {
+    const who = $('aOwner').selectedIndex > 0
+      ? ' · currently with ' + $('aOwner').options[$('aOwner').selectedIndex].text.split(' · ')[0]
+      : { assignable: ' · none of these sit with an active agent',
+          active: ' · all held by active agents',
+          unowned: ' · no owner at all',
+          archived: ' · held by deactivated accounts',
+          all: ' · every owner, active included' }[$('aState').value] || '';
+    $('aSum').textContent = label + who;
+  }
   render();
 }
 // The stage dropdowns are built from the server's stage counts, which are taken before
@@ -528,8 +573,12 @@ function render(){
   } else {
     $('aBody').innerHTML = ROWS.length ? ROWS.map(l => {
       const od = l.followUpAt && l.followUpAt < today;
+      // Active owners appear here now, so the column has to name that case rather than
+      // assuming everything listed is orphaned.
       const state = l.ownerActive === 'unowned' ? '<span class="dim">unowned</span>'
-        : l.ownerActive === false ? '<span class="neg">archived</span>' : '<span class="dim">off roster</span>';
+        : l.ownerActive === false ? '<span class="neg">deactivated</span>'
+        : l.ownerActive === true ? '<span class="pos">active</span>'
+        : '<span class="dim">unresolved</span>';
       return `<tr>
         <td class="ck"><input type="checkbox" ${sel.has(l.id) ? 'checked' : ''} onchange="mark('${l.id}',this.checked)"></td>
         <td class="l name">${leadCell(l)}</td>

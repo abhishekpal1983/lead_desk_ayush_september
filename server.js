@@ -669,6 +669,13 @@ app.get('/api/leads', (req, res) => {
 
   // ownerState narrows to who holds the lead. "assignable" is everything an active
   // agent is not already holding, which is exactly what the assign tab lists.
+  // "all" deliberately applies nothing, so a lead can be moved between two live agents rather
+  // than only rescued from a dead account. Anything unrecognised is rejected rather than
+  // silently behaving like "all", which would quietly widen a filter the caller thought was on.
+  const OWNER_STATES = ['assignable', 'active', 'archived', 'unowned', 'all'];
+  if (ownerState && !OWNER_STATES.includes(ownerState)) {
+    return res.status(400).json({ error: `ownerState must be one of ${OWNER_STATES.join(', ')}` });
+  }
   if (ownerState === 'assignable') out = out.filter(l => shapeActive(l) !== true);
   else if (ownerState === 'active') out = out.filter(l => shapeActive(l) === true);
   else if (ownerState === 'archived') out = out.filter(l => shapeActive(l) === false);
