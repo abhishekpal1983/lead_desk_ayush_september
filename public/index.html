@@ -180,6 +180,12 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
     <label for="aTier">Tier</label>
     <select id="aTier" onchange="loadLeads()"><option value="">All</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
     <label for="aStage">Stage</label><select id="aStage" onchange="loadLeads()"><option value="">All</option></select>
+    <label for="aMeet">Meeting</label>
+    <select id="aMeet" onchange="loadLeads()">
+      <option value="">All</option><option value="any">Ever booked one</option>
+      <option value="held">Held</option><option value="booked">Upcoming</option>
+      <option value="off">Cancelled or no show</option><option value="none">Never booked</option>
+    </select>
     <label for="aOwner">Currently with</label><select id="aOwner" onchange="loadLeads()"><option value="">All</option></select>
     <label for="target">Intended owner</label><select id="target"></select>
     <label for="aState">Owner state</label>
@@ -196,7 +202,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
   </div>
   <div class="tablewrap"><table><thead><tr>
     <th class="ck"><input type="checkbox" onclick="selAll(this.checked)"></th>
-    <th class="l">Lead</th><th class="l">Stage</th><th>Tier</th><th>Calls</th><th>Days</th>
+    <th class="l">Lead</th><th class="l">Stage</th><th>Tier</th><th>Meeting</th><th>Calls</th><th>Days</th>
     <th>Follow up</th><th class="l">Currently with</th><th class="l">State</th><th>₹ value</th>
   </tr></thead><tbody id="aBody"></tbody></table></div>
 
@@ -459,6 +465,7 @@ async function loadLeads(){
     if (curOwner) q.set('owner', curOwner);
   } else {
     q.set('ownerState', $('aState').value || 'assignable');
+    if ($('aMeet').value) q.set('meeting', $('aMeet').value);
     const o = $('aOwner').value; if (o) q.set('owner', o);
   }
   q.set('limit', '5000');
@@ -584,11 +591,12 @@ function render(){
         <td class="l name">${leadCell(l)}</td>
         <td class="l name">${stageName(l.stage)}</td>
         <td><span class="tg ${l.tier}">${l.tier}</span></td>
+        <td>${meetCell(l.meeting)}</td>
         <td>${l.callsInStage}</td><td>${l.daysInStage ?? ''}</td>
         <td class="${od ? 'neg' : 'dim'}">${l.followUpAt || 'none'}</td>
         <td class="l name">${l.ownerName}</td><td class="l">${state}</td>
         <td>${fmt(l.value)}</td></tr>`;
-    }).join('') : '<tr><td colspan="10" class="empty">Nothing matches these filters.</td></tr>';
+    }).join('') : '<tr><td colspan="11" class="empty">Nothing matches these filters.</td></tr>';
   }
   updBar();
 }
