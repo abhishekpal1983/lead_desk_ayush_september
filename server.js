@@ -30,6 +30,13 @@ const UI = process.env.HS_UI_DOMAIN || 'app.hubspot.com';
 const DESK_KEY = process.env.DESK_KEY || '';
 const MIN = 60 * 1000;
 
+// Identifies the deployed page. A tab left open for a week has no other way to notice that
+// the HTML it is running is older than the service answering it.
+const BUILD = (() => {
+  try { return String(Math.round(fs.statSync(path.join(__dirname, 'public/index.html')).mtimeMs)); }
+  catch (e) { return String(Date.now()); }
+})();
+
 const WORKABLE = ['rcb_requested_callback', 'discovery', 'program_pitched', 'pricing_pitched',
   'counselled', 'Follow up', 'FU_DNP', 'FU_RCB', 'payment_prospect'];
 const LATE = ['pricing_pitched', 'counselled', 'payment_prospect'];
@@ -583,6 +590,8 @@ app.get('/api/meta', (req, res) => {
     scopeRules: Object.fromEntries(Object.entries(SCOPE).map(([k, v]) => [k, v.label])),
     sync: S.meta, portal: PORTAL, ui: UI,
     keyed: !!DESK_KEY,        // so the page can ask for the key instead of failing at the first write
+    build: BUILD,             // a long open tab can tell it is running last week's page
+
     store: { ...store, pinned: Object.keys(DB.pinned).length, noted: Object.keys(DB.comments).length }
   });
 });

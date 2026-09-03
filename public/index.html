@@ -237,6 +237,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
 
 <script>
 let META = {}, AGENTS = [], ROSTER = new Set(), ROWS = [], LAST = {}, sel = new Set(), done = new Set(), curOwner = null, tab = 'q';
+let BUILD = null, LAST_SYNC = null;
 const $ = id => document.getElementById(id);
 const fmt = n => (n ?? 0).toLocaleString('en-IN');
 const lakh = n => '₹' + (n / 1e5).toFixed(2) + 'L';
@@ -298,25 +299,83 @@ async function saveKey(){
 }
 
 async function boot(){
-  try { META = await (await fetch('/api/meta')).json(); }
+  try { META = await (await fetch('/api/meta', { cache: 'no-store' })).json(); }
   catch (e) { $('mastmeta').innerHTML = '<span class="neg">cannot reach the service</span>'; return; }
+  BUILD = META.build || null;
+  LAST_SYNC = META.sync && META.sync.leads && META.sync.leads.at;
+  drawMeta();
+  drawLock();
+  const opts = '<option value="">All creators</option>' + (META.creators || []).map(c => `<option>${c}</option>`).join('');
+  $('fCreator').innerHTML = opts; $('aCreator').innerHTML = opts;
+  await loadAgents();
+  // The page used to render once and then sit there, so the sync ages froze at whatever they
+  // said on load and new data never arrived without a manual reload. It now re-reads the sync
+  // clock every minute, redraws the ages in between, and quietly reloads the table only when
+  // the server actually finished a new lead sync.
+  setInterval(pollMeta, 60 * 1000);
+  setInterval(drawMeta, 20 * 1000);
+}
+
+function drawMeta(){
   const s = META.sync || {}, st = META.store || {};
   // The notes and the hand added list are the only things here that cannot be rebuilt, so
   // say plainly whether the disk holding them has actually proved itself across a restart.
   const disk = !st.writable ? '<span class="neg">notes cannot be saved, no writable disk</span>'
     : st.survivedRestart ? `<span class="pos">notes on disk</span>`
     : `<span class="neg">disk unproven, attach a volume</span>`;
+  const err = Object.entries(s).filter(([, v]) => v && v.err).map(([k, v]) => `${k}: ${v.err}`);
   $('mastmeta').innerHTML =
     `<span>${fmt(META.leads)} leads</span><span>leads ${ago(s.leads && s.leads.at)}</span>` +
+    `<span>meetings ${ago(s.meetings && s.meetings.at)}</span>` +
     `<span>history ${ago(s.history && s.history.at)}</span>` +
-    `<span class="pos">no HubSpot writes</span>` + disk;
-  const err = Object.entries(s).filter(([, v]) => v && v.err).map(([k, v]) => `${k}: ${v.err}`);
-  if (err.length) $('mastmeta').innerHTML += `<span class="neg">${err[0]}</span>`;
-  drawLock();
-  const opts = '<option value="">All creators</option>' + (META.creators || []).map(c => `<option>${c}</option>`).join('');
-  $('fCreator').innerHTML = opts; $('aCreator').innerHTML = opts;
-  await loadAgents();
+    `<span class="pos">no HubSpot writes</span>` + disk +
+    (err.length ? `<span class="neg">${err[0]}</span>` : '');
 }
+
+// Poll the sync clock rather than the data. Re-pulling several thousand rows every minute
+// would be wasteful and would fight whatever is on screen, so the table is only rebuilt when
+// the lead sync timestamp moves, which is every ten minutes at most.
+// Not called tick: the queue already has a tick(id, checked) for the done checkboxes, and a
+// second declaration of that name would win and get called by setInterval every minute.
+async function pollMeta(){
+  let m;
+  try { m = await (await fetch('/api/meta', { cache: 'no-store' })).json(); }
+  catch (e) { return; }                      // a blip is not worth shouting about, try again next minute
+  META = m;
+  drawMeta();
+  drawLock();
+  if (BUILD && m.build && m.build !== BUILD) showNewBuild();
+  const at = m.sync && m.sync.leads && m.sync.leads.at;
+  if (at && at !== LAST_SYNC) {
+    LAST_SYNC = at;
+    try { await softReload(); }
+    catch (e) { flash('could not refresh just now, will try again', true); }
+  }
+}
+
+// Refresh the data without throwing away where the user is: scroll position, the agent they
+// picked, the assign tab's owner choice, their selections and any open drawer all survive.
+async function softReload(){
+  const y = window.scrollY, o = $('aOwner').value, t = $('target').value;
+  await loadAgents();
+  if (o) $('aOwner').value = o;
+  if (t) $('target').value = t;
+  window.scrollTo(0, y);
+  flash('refreshed with the latest sync');
+}
+
+function showNewBuild(){
+  if ($('newbuild')) return;
+  const b = document.createElement('div');
+  b.id = 'newbuild';
+  b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:80;' +
+    'background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:4px;font-size:13px;' +
+    'box-shadow:0 6px 24px rgba(0,0,0,.22);display:flex;gap:12px;align-items:center';
+  b.innerHTML = `<span>A newer version of this page is available.</span>
+    <button class="btn" style="background:var(--paper)" onclick="location.reload(true)">Reload</button>`;
+  document.body.appendChild(b);
+}
+
 function ago(t){
   if (!t) return 'never';
   const m = Math.round((Date.now() - new Date(t)) / 60000);
