@@ -342,7 +342,8 @@ function drawMeta(){
   $('mastmeta').innerHTML =
     `<span>${fmt(META.leads)} leads</span><span>leads ${ago(s.leads && s.leads.at)}</span>` +
     `<span>meetings ${ago(s.meetings && s.meetings.at)}</span>` +
-    `<span>history ${ago(s.history && s.history.at)}</span>` +
+    `<span>history ${ago(s.history && s.history.at)}` +
+      `${s.history && s.history.skipped ? ` · ${fmt(s.history.skipped)} skipped` : ''}</span>` +
     `<span class="pos">no HubSpot writes</span>` + disk +
     (err.length ? `<span class="neg">${err[0]}</span>` : '');
 }

@@ -133,12 +133,26 @@ the sync uses, and pins it. Two consequences worth knowing:
 |---|---|---|
 | leads | every 10 min | one search per creator per stage group, split by create date whenever a partition exceeds 9,000 |
 | meetings | every 30 min | the whole meetings object with contact associations, 100 per page, about 50 calls |
-| history | every 60 min | `batch/read` at 50 ids per call, in scope workable and IFC leads only |
+| history | every 60 min | `batch/read` at 25 ids per call, in scope workable and IFC leads only |
 | owners | every 6 h | two passes, active and archived |
 
 History is the expensive one. It is deliberately limited to in scope workable and parked leads,
 which is a few thousand rather than the hundred and twenty thousand records these creators hold
 between them. Widening that filter will make the sync take hours, so widen it on purpose or not at all.
+
+`batch/read` with `propertiesWithHistory` returns a 500 often enough to matter. Three things absorb it:
+
+- `hs()` retries any 5xx three times with growing backoff, which is enough for the transient ones.
+- A batch that still fails is **halved and retried**, down to a single id. Previously the whole batch
+  was abandoned, so one unserveable record cost the other forty nine their progress fields. Only a
+  contact that fails alone is skipped, and its id is logged and returned in `sync.history.failed`.
+- `HISTORY_BATCH` defaults to 25 rather than the API maximum of 50, since a smaller response is
+  less likely to trip HubSpot's internals in the first place.
+
+`sync.history.skipped` counts them and the masthead shows it next to the history age. It is only
+raised to a red error above two percent of the book, because a handful of records HubSpot cannot
+serve is a fact worth recording, not an alarm worth painting red every hour. The error field also
+used to carry forward for ever once set; it is cleared at the start of each run now.
 
 ## API
 

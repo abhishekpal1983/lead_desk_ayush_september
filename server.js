@@ -107,7 +107,7 @@ function scopeFail(l) {
 }
 
 // ---------------------------------------------------------------- hubspot client
-async function hs(path, opts = {}) {
+async function hs(path, opts = {}, tries = { rate: 0, server: 0 }) {
   if (!TOKEN) throw new Error('HUBSPOT_TOKEN is not set');
   const res = await fetch('https://api.hubapi.com' + path, {
     ...opts,
@@ -117,9 +117,16 @@ async function hs(path, opts = {}) {
       ...(opts.headers || {})
     }
   });
-  if (res.status === 429) {                       // respect the rate limiter rather than hammering it
+  if (res.status === 429 && tries.rate < 10) {    // respect the rate limiter rather than hammering it
     await sleep(2000);
-    return hs(path, opts);
+    return hs(path, opts, { ...tries, rate: tries.rate + 1 });
+  }
+  // A HubSpot 5xx is their side falling over, and on batch/read it is usually transient.
+  // Backing off and trying again costs a few seconds; surfacing it immediately costs the
+  // whole batch its data.
+  if (res.status >= 500 && tries.server < 3) {
+    await sleep(900 * (tries.server + 1) * (tries.server + 1));
+    return hs(path, opts, { ...tries, server: tries.server + 1 });
   }
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -381,15 +388,38 @@ async function syncHistory() {
   const ids = [...S.leads.values()]
     .filter(l => l.inScope && (WORKABLE.includes(l.stage) || l.stage === 'IFC'))
     .map(l => l.id);
-  const n = await syncHistoryFor(ids);
-  S.meta.history = { at: new Date().toISOString(), n, err: S.meta.history.err };
+  // Start clean. The old code carried the previous run's error forward for ever, so one bad
+  // hour left the masthead showing a failure long after the sync had recovered.
+  const { n, failed } = await syncHistoryFor(ids);
+  // A handful of records HubSpot cannot serve is a fact worth recording, not an alarm worth
+  // painting red every hour. It only becomes an error when enough of the book is missing that
+  // the progress fields stop being trustworthy.
+  const bad = ids.length ? failed.length / ids.length : 0;
+  S.meta.history = {
+    at: new Date().toISOString(), n,
+    skipped: failed.length,
+    err: bad > 0.02
+      ? `HubSpot could not return history for ${failed.length} of ${ids.length} contacts`
+      : null,
+    failed: failed.slice(0, 25)
+  };
+  if (failed.length) console.error('history: contacts HubSpot refused:', failed.slice(0, 25).join(', '));
   return n;
 }
 // Split out so a single lead added by hand can have its history filled straight away
 // rather than waiting for the hourly pass.
+// HubSpot answers this endpoint with a 500 often enough to matter, and a whole batch used to
+// be abandoned when it did, so fifty leads lost their progress fields over one bad record.
+// A failed batch is now halved and retried until either it succeeds or a single contact is
+// isolated as the one HubSpot cannot serve. Only that contact is given up on, and it is named.
+const HISTORY_BATCH = Math.min(Number(process.env.HISTORY_BATCH) || 25, 50);
+
 async function syncHistoryFor(ids) {
   let n = 0;
-  for (const batch of chunk(ids, 50)) {
+  const failed = [];
+  const queue = chunk(ids, HISTORY_BATCH);
+  while (queue.length) {
+    const batch = queue.shift();
     const body = {
       propertiesWithHistory: ['contact_engagement_stage', 'hubspot_owner_id'],
       properties: ['hs_object_id'],
@@ -399,7 +429,14 @@ async function syncHistoryFor(ids) {
     try {
       page = await hs('/crm/v3/objects/contacts/batch/read', { method: 'POST', body: JSON.stringify(body) });
     } catch (e) {
-      S.meta.history.err = e.message;
+      if (batch.length > 1) {
+        const mid = Math.ceil(batch.length / 2);
+        queue.unshift(batch.slice(0, mid), batch.slice(mid));   // bisect and come straight back to it
+      } else {
+        failed.push(batch[0]);
+        console.error(`history: HubSpot will not return contact ${batch[0]}: ${e.message}`);
+      }
+      await sleep(500);
       continue;
     }
     for (const r of page.results || []) {
@@ -440,7 +477,7 @@ async function syncHistoryFor(ids) {
     }
     await sleep(150);
   }
-  return n;
+  return { n, failed };
 }
 
 // ---------------------------------------------------------------- sync: meetings
