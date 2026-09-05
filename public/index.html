@@ -164,6 +164,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
   </div>
 
   <div class="tablewrap"><table><thead><tr>
+    <th class="ck" title="select for copying"><input type="checkbox" onclick="selAll(this.checked)"></th>
     <th class="ck">done</th><th class="l">Lead</th><th class="l">Stage</th><th>Tier</th><th>Meeting</th><th>Calls</th>
     <th>Days in stage</th><th>Last call</th><th>Follow up</th><th>Score</th><th>₹ value</th>
   </tr></thead><tbody id="qBody"></tbody></table></div>
@@ -206,26 +207,6 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
     <th>Follow up</th><th class="l">Currently with</th><th class="l">State</th><th>₹ value</th>
   </tr></thead><tbody id="aBody"></tbody></table></div>
 
-  <div class="bar">
-    <span class="cnt" id="selN">0 selected</span>
-    <span class="sum" id="selV"></span>
-    <button class="btn primary" onclick="copyEmails(';')">Copy emails, semicolon separated</button>
-    <button class="btn" onclick="copyEmails('\n')">One per line</button>
-    <button class="btn" onclick="copyCsv()">Copy as CSV</button>
-    <span class="sum" id="msg"></span>
-  </div>
-
-  <div id="outWrap" hidden style="margin:18px 0">
-    <div class="ctl" style="margin:0 0 8px">
-      <span class="sum" style="color:var(--ink)">If nothing landed on your clipboard, click in the box, select all, and copy.</span>
-      <button class="btn" onclick="reselect()">Select all text</button>
-      <button class="btn" onclick="document.getElementById('outWrap').hidden=true">Hide</button>
-    </div>
-    <textarea id="outBox" readonly style="width:100%;height:170px;font-family:'JetBrains Mono',monospace;
-      font-size:11.5px;padding:12px;border:1px solid var(--line2);background:var(--surface);
-      color:var(--ink);border-radius:3px"></textarea>
-  </div>
-
   <div class="call">
     <span class="k">How to apply this in HubSpot</span>
     <p>Select the leads, copy the emails, then in HubSpot open Contacts, add a filter on <strong>Email</strong>,
@@ -240,6 +221,30 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
 </div><!-- /pane-a. The drawer must sit outside both panes: hiding a pane is display:none,
           which stops even a position:fixed child inside it from rendering at all. -->
 
+<!-- One selection bar for both tabs rather than a copy of it in each. It lives outside the
+     panes so hiding a pane cannot take it with it, and it only appears once something is
+     ticked, so it never sits there empty taking up the bottom of the screen. -->
+<div class="bar" id="selBar" hidden>
+  <span class="cnt" id="selN">0 selected</span>
+  <span class="sum" id="selV"></span>
+  <button class="btn primary" onclick="copyEmails(';')">Copy emails, semicolon separated</button>
+  <button class="btn" onclick="copyEmails('\n')">One per line</button>
+  <button class="btn" onclick="copyCsv()">Copy as CSV</button>
+  <button class="btn" onclick="selAll(false)">Clear</button>
+  <span class="sum" id="msg"></span>
+</div>
+
+<div id="outWrap" hidden style="margin:18px 0">
+  <div class="ctl" style="margin:0 0 8px">
+    <span class="sum" style="color:var(--ink)">If nothing landed on your clipboard, click in the box, select all, and copy.</span>
+    <button class="btn" onclick="reselect()">Select all text</button>
+    <button class="btn" onclick="document.getElementById('outWrap').hidden=true">Hide</button>
+  </div>
+  <textarea id="outBox" readonly style="width:100%;height:170px;font-family:'JetBrains Mono',monospace;
+    font-size:11.5px;padding:12px;border:1px solid var(--line2);background:var(--surface);
+    color:var(--ink);border-radius:3px"></textarea>
+</div>
+
 <div id="drawer"></div>
 
 <footer>
@@ -251,7 +256,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
 </div>
 
 <script>
-let META = {}, AGENTS = [], ROSTER = new Set(), ROWS = [], LAST = {}, sel = new Set(), done = new Set(), curOwner = null, tab = 'q';
+let META = {}, AGENTS = [], ROSTER = new Set(), ROWS = [], LAST = {}, sel = new Set(), selData = new Map(), done = new Set(), curOwner = null, tab = 'q';
 let BUILD = null, LAST_SYNC = null;
 const $ = id => document.getElementById(id);
 const fmt = n => (n ?? 0).toLocaleString('en-IN');
@@ -568,6 +573,7 @@ function render(){
     $('qBody').innerHTML = ROWS.length ? ROWS.map(l => {
       const od = l.followUpAt && l.followUpAt < today;
       return `<tr class="${done.has(l.id) ? 'done' : ''}">
+        <td class="ck"><input type="checkbox" ${sel.has(l.id) ? 'checked' : ''} onchange="mark('${l.id}',this.checked)"></td>
         <td class="ck"><input type="checkbox" ${done.has(l.id) ? 'checked' : ''} onchange="tick('${l.id}',this.checked)"></td>
         <td class="l name">${leadCell(l)}</td>
         <td class="l name">${stageName(l.stage)}</td>
@@ -577,7 +583,7 @@ function render(){
         <td class="dim">${l.lastCallAt || 'never'}</td>
         <td class="${od ? 'neg' : 'dim'}">${l.followUpAt || 'none'}</td>
         <td>${l.score || ''}</td><td>${fmt(l.value)}</td></tr>`;
-    }).join('') : '<tr><td colspan="11" class="empty">Pick an agent above, or clear the filters.</td></tr>';
+    }).join('') : '<tr><td colspan="12" class="empty">Pick an agent above, or clear the filters.</td></tr>';
   } else {
     $('aBody').innerHTML = ROWS.length ? ROWS.map(l => {
       const od = l.followUpAt && l.followUpAt < today;
@@ -602,15 +608,32 @@ function render(){
   updBar();
 }
 function tick(id, v){ v ? done.add(id) : done.delete(id); saveDone(); loadLeads(); }
-function mark(id, v){ v ? sel.add(id) : sel.delete(id); updBar(); }
-function selAll(v){ ROWS.forEach(l => v ? sel.add(l.id) : sel.delete(l.id)); render(); }
+// The selected leads are kept as objects, not just ids, so a selection survives a change of
+// filter: pick the P1s at one stage, switch stage, pick more, copy the lot. Holding ids alone
+// meant anything scrolled out of the current filter silently vanished from the copy and from
+// the value total, while still being counted as selected.
+function mark(id, v){
+  if (v) { sel.add(id); const l = ROWS.find(x => x.id === id); if (l) selData.set(id, l); }
+  else { sel.delete(id); selData.delete(id); }
+  updBar();
+}
+function selAll(v){
+  if (v) ROWS.forEach(l => { sel.add(l.id); selData.set(l.id, l); });
+  else { sel.clear(); selData.clear(); }      // Clear means all of it, not just what is on screen
+  render();
+}
 function updBar(){
-  const rows = ROWS.filter(l => sel.has(l.id));
+  const rows = selectedRows();
   $('selN').textContent = `${fmt(sel.size)} selected`;
   $('selV').textContent = sel.size ? lakh(rows.reduce((a, x) => a + x.value, 0)) + ' of value' : '';
+  $('selBar').hidden = !sel.size;
 }
 function showTab(t){
   tab = t;
+  // The two tabs hold different leads for different reasons, so carrying a selection across
+  // would mean copying the assign list while looking at a queue. Start clean instead.
+  sel.clear(); selData.clear();
+  $('outWrap').hidden = true;
   $('pane-q').hidden = t !== 'q'; $('pane-a').hidden = t !== 'a';
   $('t-q').setAttribute('aria-selected', t === 'q'); $('t-a').setAttribute('aria-selected', t === 'a');
   $('aCreator').value = $('fCreator').value;
@@ -648,7 +671,7 @@ function put(text, msg){
     navigator.clipboard.writeText(text).then(() => flash(msg)).catch(fallback);
   else fallback();
 }
-function selectedRows(){ return ROWS.filter(l => sel.has(l.id)); }
+function selectedRows(){ return [...selData.values()]; }
 function copyEmails(sep){
   const rows = selectedRows();
   if (!rows.length) return flash('Select some leads first', true);
@@ -657,13 +680,30 @@ function copyEmails(sep){
   put(withEmail.map(l => l.email).join(sep),
     `${withEmail.length} emails copied` + (missing ? `, ${missing} had no email` : ''));
 }
-function copyCsv(){
+// A field is quoted whenever it could break the row, and a leading quote is doubled, so a
+// name with a comma in it does not silently shift every later column by one.
+function csvCell(v){
+  const s = v == null ? '' : String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+// Phone numbers are not on the open list endpoint, so the CSV is fetched from the guarded
+// export route rather than built from what the table happens to be holding.
+async function copyCsv(){
   const rows = selectedRows();
   if (!rows.length) return flash('Select some leads first', true);
-  const name = $('target').options[$('target').selectedIndex];
-  put('Email,Contact owner,Record ID,Lead,Stage,Tier\n' +
-    rows.map(l => `${l.email},${name ? name.text : ''},${l.id},${(l.name || '').replace(/,/g, ' ')},${l.stage},${l.tier}`).join('\n'),
-    `${rows.length} rows copied as CSV`);
+  flash('building the CSV');
+  let out;
+  try { out = await post('/api/export', { ids: rows.map(l => l.id) }); }
+  catch (e) { return flash(e.message, true); }
+  const cols = ['name', 'phone', 'email', 'creator', 'stage', 'tier', 'meeting',
+    'owner', 'daysInStage', 'lastCallAt', 'followUpAt', 'value'];
+  const head = ['Name', 'Phone', 'Email', 'Creator', 'Stage', 'Tier', 'Meeting',
+    'Owner', 'Days in stage', 'Last call', 'Follow up', 'Value'];
+  const noPhone = out.rows.filter(r => !r.phone).length;
+  put([head.join(',')].concat(out.rows.map(r => cols.map(c => csvCell(r[c])).join(','))).join('\n'),
+    `${out.rows.length} rows copied as CSV` +
+    (noPhone ? `, ${noPhone} without a phone number` : '') +
+    (out.missing ? `, ${out.missing} no longer in the desk` : ''));
 }
 
 // ---------------------------------------------------------------- add a prospect by email

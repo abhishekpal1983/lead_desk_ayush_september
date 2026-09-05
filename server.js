@@ -768,6 +768,31 @@ function guard(req, res) {
 // keeps the destructive step where it has an audit trail and an undo, and it means this service
 // never needs a write scope on its token. The endpoints below only touch the desk's own file.
 
+// ---------------------------------------------------------------- export
+// Phone numbers are deliberately NOT on /api/leads. That endpoint is unauthenticated, and
+// putting phones on it would mean anyone who has the URL could pull the whole book's numbers.
+// They are only served here, behind DESK_KEY, for the ids the user actually selected.
+app.post('/api/export', (req, res) => {
+  if (!guard(req, res)) return;
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.slice(0, 10000) : [];
+  if (!ids.length) return res.status(400).json({ error: 'no leads selected' });
+  const rows = [];
+  for (const id of ids) {
+    const l = S.leads.get(String(id));
+    if (!l) continue;
+    const o = S.owners.get(l.ownerId);
+    rows.push({
+      name: l.name, phone: l.phone || '', email: l.email || '',
+      creator: l.creator, stage: l.stage, tier: l.tier,
+      meeting: l.meeting ? l.meeting.state : 'none',
+      owner: o ? o.name : (l.ownerId ? 'unresolved' : 'Unowned'),
+      daysInStage: l.daysInStage ?? '', value: l.value,
+      lastCallAt: ymd(l.lastCallAt), followUpAt: ymd(l.followUpAt)
+    });
+  }
+  res.json({ rows, missing: ids.length - rows.length });
+});
+
 // ---------------------------------------------------------------- manual prospects
 // Paste an email, get the same lead every sync would have produced. Useful when an agent
 // mentions a prospect the desk filtered out, or one belonging to a creator it does not sync.

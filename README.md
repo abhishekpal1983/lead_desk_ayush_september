@@ -79,6 +79,12 @@ the notes typed against a lead. Neither reaches the CRM, so a note is invisible 
 Set `DESK_KEY` to something long in any shared deployment, so the notes, the hand added list and
 `/api/refresh` cannot be touched by anyone who has the URL.
 
+**Phone numbers are not on `/api/leads`.** That endpoint has no authentication, so putting phones on
+it would let anyone holding the URL pull the whole book's numbers. They are served only by
+`POST /api/export`, which is behind `DESK_KEY`, and only for the ids actually selected. Emails are
+still on the open endpoint, which is worth knowing: **this desk has no read auth at all**, so treat
+the URL itself as sensitive until one is added.
+
 ## The desk's own data
 
 Everything else in this process is a cache that rebuilds from HubSpot on boot. The notes and the
@@ -164,6 +170,7 @@ used to carry forward for ever once set; it is cleared at the start of each run 
 | `GET /api/lead/:id` | one lead in full: stage path, owner path, notes, transcript |
 | `POST /api/manual {email}` | look a contact up by email and pin it into the desk |
 | `DELETE /api/manual/:id` | unpin it, putting it back under the normal scope rule |
+| `POST /api/export {ids}` | name, **phone**, email and the rest for the selected leads, for the CSV |
 | `POST /api/comment/:id {text, by, agent}` | record what was said. Desk only, never HubSpot |
 | `DELETE /api/comment/:id/:idx` | remove one note |
 | `POST /api/refresh` | kick every sync |
