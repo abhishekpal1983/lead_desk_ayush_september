@@ -229,6 +229,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
   <span class="sum" id="selV"></span>
   <button class="btn primary" onclick="copyEmails(';')">Copy emails, semicolon separated</button>
   <button class="btn" onclick="copyEmails('\n')">One per line</button>
+  <button class="btn primary" onclick="copySheet()">Copy for Sheets</button>
   <button class="btn" onclick="copyCsv()">Copy as CSV</button>
   <button class="btn" onclick="selAll(false)">Clear</button>
   <span class="sum" id="msg"></span>
@@ -680,6 +681,48 @@ function copyEmails(sep){
   put(withEmail.map(l => l.email).join(sep),
     `${withEmail.length} emails copied` + (missing ? `, ${missing} had no email` : ''));
 }
+// Name, email, phone, agent, tab separated. Tabs rather than commas because Google Sheets
+// splits a pasted TSV across columns on its own, while a pasted CSV lands in a single cell
+// and needs Split text to columns afterwards.
+//
+// The phone needs one more thing. These are stored as +919999999999, and a cell starting
+// with + is read by Sheets as a formula, so the number arrives as 919999999999 with the plus
+// silently gone. A leading apostrophe is Sheets' own marker for "treat this as text": it is
+// consumed on paste and the number survives intact.
+async function copySheet(){
+  const rows = selectedRows();
+  if (!rows.length) return flash('Select some leads first', true);
+  flash('building the list');
+  let out;
+  try { out = await post('/api/export', { ids: rows.map(l => l.id) }); }
+  catch (e) { return flash(e.message, true); }
+  const clean = v => String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' ').trim();
+  const body = out.rows.map(r =>
+    [clean(r.name), clean(r.email), r.phone ? "'" + clean(r.phone) : '', clean(r.owner)].join('\t'));
+  const noPhone = out.rows.filter(r => !r.phone).length;
+  const junk = out.rows.filter(r => placeholderPhone(r.phone)).length;
+  put(['Name\tEmail\tPhone\tAgent'].concat(body).join('\n'),
+    `${out.rows.length} rows copied, paste straight into Sheets` +
+    (noPhone ? `, ${noPhone} without a number` : '') +
+    (junk ? `, ${junk} look like placeholder numbers` : ''));
+}
+
+// Conservative on purpose: it only counts, never removes or alters a number. Anything under
+// ten digits, or a single repeated digit, or the two keyboard-walk sequences that show up in
+// this portal in the hundreds.
+function placeholderPhone(p){
+  const raw = String(p || '').trim();
+  let d = raw.replace(/\D/g, '');
+  // A leading + means the 91 after it is the country code, so what follows has to stand on
+  // its own as ten digits. Without the +, a ten digit number starting 91 is a perfectly good
+  // Indian mobile and must not be flagged.
+  if (raw.startsWith('+') && d.startsWith('91')) d = d.slice(2);
+  else if (d.length === 12 && d.startsWith('91')) d = d.slice(2);
+  if (!d || d.length < 10) return true;
+  if (/^(\d)\1+$/.test(d)) return true;
+  return d === '1234567890' || d === '9876543210';
+}
+
 // A field is quoted whenever it could break the row, and a leading quote is doubled, so a
 // name with a comma in it does not silently shift every later column by one.
 function csvCell(v){
