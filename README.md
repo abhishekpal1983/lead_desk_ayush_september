@@ -122,6 +122,21 @@ the hard version.
 This is a list, not a search, so the 10,000 cap does not apply and the whole object is cheap:
 roughly 4,800 meetings at 100 a page. Filter with `?meeting=any|held|booked|off|none`.
 
+## The Region filter
+
+`region` is Topmate's own property, not geography: the regional or linguistic community
+inferred from the lead's name where address data is unavailable. Values look like
+`marathi`, `hindi_belt`, `non_indian`. Labels are read from the HubSpot property at boot
+rather than hardcoded, so editing the option list in the CRM does not leave this app stale.
+
+It is **thinly populated**. Across `ayush_singh13` only 1,966 of 37,637 contacts have one, and
+inside the workable book it is 407 of 3,365. So the dropdown offers **Not set** explicitly with
+its own count, rather than leaving a silent gap between the total and what the options add up to.
+
+Region counts and stage counts are both taken before either filter is applied, so neither
+dropdown can narrow the other into a dead end: pick a region and every stage that region
+contains is still listed. Filter with `?region=<value>` or `?region=none`.
+
 ## Adding a prospect by hand
 
 `POST /api/manual {email}` looks the contact up in HubSpot, builds it through the same `buildLead`
@@ -166,7 +181,7 @@ used to carry forward for ever once set; it is cleared at the start of each run 
 |---|---|
 | `GET /api/meta` | creators, scope rule labels, sync status, and whether the store has proved itself |
 | `GET /api/agents?creator=` | every owner holding leads, with counts by stage group, P1 count, overdue, uncalled, value |
-| `GET /api/leads?creator=&owner=&stage=&tier=&group=&ownerState=&manual=&noted=&meeting=&minValue=&limit=` | the queue, ordered by value, with agent and stage aggregates taken over the whole filtered set rather than the returned page |
+| `GET /api/leads?creator=&owner=&stage=&tier=&group=&ownerState=&manual=&noted=&meeting=&region=&minValue=&limit=` | the queue, ordered by value, with agent and stage aggregates taken over the whole filtered set rather than the returned page |
 | `GET /api/lead/:id` | one lead in full: stage path, owner path, notes, transcript |
 | `POST /api/manual {email}` | look a contact up by email and pin it into the desk |
 | `DELETE /api/manual/:id` | unpin it, putting it back under the normal scope rule |

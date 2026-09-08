@@ -141,6 +141,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
     <label for="qTier">Tier</label>
     <select id="qTier" onchange="loadLeads()"><option value="">All</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
     <label for="qStage">Stage</label><select id="qStage" onchange="loadLeads()"><option value="">All</option></select>
+    <label for="qRegion">Region</label><select id="qRegion" onchange="loadLeads()"><option value="">All</option></select>
     <label><input type="checkbox" id="qHide" onchange="loadLeads()"> hide called</label>
     <label for="qMeet">Meeting</label>
     <select id="qMeet" onchange="loadLeads()">
@@ -181,6 +182,7 @@ footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);font-siz
     <label for="aTier">Tier</label>
     <select id="aTier" onchange="loadLeads()"><option value="">All</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
     <label for="aStage">Stage</label><select id="aStage" onchange="loadLeads()"><option value="">All</option></select>
+    <label for="aRegion">Region</label><select id="aRegion" onchange="loadLeads()"><option value="">All</option></select>
     <label for="aMeet">Meeting</label>
     <select id="aMeet" onchange="loadLeads()">
       <option value="">All</option><option value="any">Ever booked one</option>
@@ -461,6 +463,8 @@ async function loadLeads(){
   const stage = tab === 'q' ? $('qStage').value : $('aStage').value;
   if (tier) q.set('tier', tier);
   if (stage) q.set('stage', stage);
+  const rgn = tab === 'q' ? $('qRegion').value : $('aRegion').value;
+  if (rgn) q.set('region', rgn);
   if (tab === 'q'){
     const manual = $('qManual').checked, noted = $('qNoted').checked;
     if (manual) q.set('manual', '1');
@@ -479,6 +483,7 @@ async function loadLeads(){
   const r = await (await fetch('/api/leads?' + q)).json();
   LAST = r;
   fillStages(r.stages);
+  fillRegions(r.regions);
   if (tab === 'q') drawChips(r.agents.filter(a => a.active === true));
   else drawOwnerLoad(r.agents);
 
@@ -503,6 +508,22 @@ async function loadLeads(){
   }
   render();
 }
+// region is Topmate's regional or linguistic community field, inferred from the lead's name,
+// not a postal region. It is thinly populated, so Not set is offered explicitly with its own
+// count rather than left as a silent gap between the total and what the options add up to.
+function fillRegions(list){
+  const rows = list || [];
+  const html = '<option value="">All regions</option>' + rows.map(r =>
+    `<option value="${r.value || 'none'}">${esc(r.label)} (${fmt(r.n)})</option>`).join('');
+  for (const id of ['qRegion', 'aRegion']){
+    const el = $(id);
+    if (!el) continue;
+    const keep = el.value;
+    el.innerHTML = html;
+    el.value = keep;
+  }
+}
+
 // The stage dropdowns are built from the server's stage counts, which are taken before
 // the stage filter is applied, so selecting a stage cannot collapse the list to one option.
 const STAGE_ORDER = ['payment_prospect', 'counselled', 'pricing_pitched', 'program_pitched',

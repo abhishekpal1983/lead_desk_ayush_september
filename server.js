@@ -50,7 +50,22 @@ const PROPS = ['hs_object_id', 'firstname', 'lastname', 'email', 'phone', 'topma
   'call_in_current_stage_by_current_owner', 'last_call_date_and_time', 'follow_up_date_and_time',
   'engagement_stage_last_changed_at', 'createdate', 'conversion_probability_score',
   'are_you_a_student_or_working_professional', 'tm_student_or_professional', 'counselling_done',
-  'counselling_date', 'actual_source', 'international_number', 'num_contacted_notes'];
+  'counselling_date', 'actual_source', 'international_number', 'num_contacted_notes', 'region'];
+
+// region is Topmate's own property: the regional or linguistic community inferred from the
+// lead's name, not a postal region. Its labels live in HubSpot, so they are read from there
+// once rather than hardcoded here, where they would drift the moment someone edits the list.
+const REGION_LABELS = new Map();
+async function syncRegionLabels() {
+  try {
+    const p = await hs('/crm/v3/properties/contacts/region');
+    for (const o of p.options || []) REGION_LABELS.set(o.value, o.label);
+  } catch (e) {
+    console.error('region labels unavailable, falling back to raw values:', e.message);
+  }
+  return REGION_LABELS.size;
+}
+const regionLabel = v => v ? (REGION_LABELS.get(v) || v) : 'Not set';
 
 // ---------------------------------------------------------------- scoring
 // Chance a lead in this stage pays inside the month, before any call-depth adjustment.
@@ -319,6 +334,7 @@ function buildLead(r) {
     counsellingDone: p.counselling_done === 'true',
     counsellingDate: p.counselling_date || '',
     source: p.actual_source || '',
+    region: p.region || '',
     intl: p.international_number === 'true',
     touches: Number(p.num_contacted_notes) || 0,
     progress: prev.progress || null,     // preserved across lead syncs
@@ -607,6 +623,7 @@ function shape(l) {
     callsInStage: l.callsInStage, callsByOwner: l.callsByOwner,
     daysInStage: l.daysInStage, followUpAt: ymd(l.followUpAt), lastCallAt: ymd(l.lastCallAt),
     createdAt: ymd(l.createdAt), source: l.source, intl: l.intl,
+    region: l.region || '', regionLabel: regionLabel(l.region),
     ownerId: l.ownerId, ownerName: o ? o.name : (l.ownerId ? 'unresolved' : 'Unowned'),
     ownerActive: l.ownerId ? (o ? o.active : null) : 'unowned',
     url: `https://${UI}/contacts/${PORTAL}/record/0-1/${l.id}`,
@@ -666,7 +683,7 @@ app.get('/api/agents', (req, res) => {
 // dropdown and the summary must describe the WHOLE filtered set, not the first page
 // of it. So the aggregates are computed before the slice and returned alongside.
 app.get('/api/leads', (req, res) => {
-  const { creator, owner, stage, tier, scope, group, minValue, ownerState, manual, noted, meeting } = req.query;
+  const { creator, owner, stage, tier, scope, group, minValue, ownerState, manual, noted, meeting, region } = req.query;
   let out = [...S.leads.values()];
   if (scope !== 'all') out = out.filter(l => l.inScope);
   if (manual === '1') out = out.filter(l => l.manual);
@@ -683,9 +700,17 @@ app.get('/api/leads', (req, res) => {
 
   // Stage counts are taken before the stage filter, otherwise the dropdown can only
   // ever offer the stage that is already selected.
+  // Both counts are taken before either filter is applied, so neither dropdown can narrow the
+  // other into a dead end: picking a region still shows every stage that region contains.
   const stages = {};
-  for (const l of out) stages[l.stage] = (stages[l.stage] || 0) + 1;
+  const regions = {};
+  for (const l of out) {
+    stages[l.stage] = (stages[l.stage] || 0) + 1;
+    regions[l.region || ''] = (regions[l.region || ''] || 0) + 1;
+  }
   if (stage) out = out.filter(l => l.stage === stage);
+  if (region === 'none') out = out.filter(l => !l.region);
+  else if (region) out = out.filter(l => l.region === region);
 
   // Same for the agent aggregates: they are taken before the owner filter so that
   // clicking one chip does not wipe out all the others.
@@ -724,7 +749,10 @@ app.get('/api/leads', (req, res) => {
   const value = out.reduce((s, l) => s + (l.value || 0), 0);
   res.json({
     total: out.length, value, truncated: out.length > limit,
-    agents: agentList, stages, rows: out.slice(0, limit).map(shape)
+    agents: agentList, stages,
+    regions: Object.entries(regions).map(([v, n]) => ({ value: v, label: regionLabel(v), n }))
+      .sort((a, b) => (a.value === '' ? 1 : b.value === '' ? -1 : b.n - a.n)),
+    rows: out.slice(0, limit).map(shape)
   });
 });
 function shapeActive(l) {
@@ -891,6 +919,7 @@ async function safe(name, fn) {
   catch (e) { console.error(`${name} failed:`, e.message); S.meta[name] = { ...(S.meta[name] || {}), err: e.message }; }
 }
 async function runAll() {
+  await safe('regionLabels', syncRegionLabels);
   await safe('owners', syncOwners);
   await safe('leads', syncLeads);
   await safe('pinned', syncPinned);      // after leads, so the sweep cannot drop them
